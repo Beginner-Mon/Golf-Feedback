@@ -1,1 +1,5 @@
 .venv
+
+*.tar
+
+/models
