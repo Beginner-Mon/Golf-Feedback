@@ -34,10 +34,6 @@ GolfFeedback-poc/
 ├── environment.yml
 └── README.md
 
-yaml
-Sao chép mã
-
----
 
 ## 🚀 What This Module Does
 
@@ -80,7 +76,9 @@ python golfpose_3d.py \
   -s 243 \
   -gpu 0 \
   -club 5
-  📚 References
+  
+  
+📚 References
 
 If you use this module in research or reports, please cite:
 
