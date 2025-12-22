@@ -1,0 +1,97 @@
+# ===============================
+# Python
+# ===============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+
+# ===============================
+# Conda / virtualenv
+# ===============================
+.env
+.venv
+venv/
+env/
+conda-env/
+*.conda
+
+# ===============================
+# IDE / Editor
+# ===============================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===============================
+# OS
+# ===============================
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Logs
+# ===============================
+log/
+logs/
+*.log
+
+# ===============================
+# Checkpoints / models (DO NOT COMMIT)
+# ===============================
+checkpoint/
+checkpoints/
+golfpose_checkpoints/
+*.bin
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+
+# ===============================
+# Datasets (DO NOT COMMIT)
+# ===============================
+data/
+datasets/
+golfswing/
+golfswing/**
+GolfPose/data/
+CaddieSet/
+*.npz
+*.npy
+*.json
+
+# ===============================
+# Outputs / visualizations
+# ===============================
+output/
+outputs/
+videos/
+renders/
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.png
+
+# ===============================
+# Temporary files
+# ===============================
+tmp/
+temp/
+
+# ===============================
+# Jupyter
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# Cache
+# ===============================
+.cache/
+torch_cache/
