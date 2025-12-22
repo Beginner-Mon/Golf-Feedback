@@ -96,9 +96,11 @@ def main():
         trainer = pl.Trainer(logger=tb_logger, max_epochs=config.num_epochs, callbacks=[checkpoint_callback])
         trainer.fit(litmodel, trainloader, valloader)
 
-        plot_mean_feature_importance(litmodel.model, dataset)
-        plot_nams(litmodel.model, dataset, num_cols=1)
-        plt.show()
+        trainer.test(litmodel, testloader, ckpt_path='best', verbose=True)
+
+        # plot_mean_feature_importance(litmodel.model, dataset)
+        # plot_nams(litmodel.model, dataset, num_cols=1)
+        # plt.show()
 
 
 if __name__ == "__main__":
