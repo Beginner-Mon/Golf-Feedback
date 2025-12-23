@@ -115,7 +115,6 @@ def process_video(video_path, seq_length=64):
     for i, e in enumerate(events):
         confidence.append(probs[e, i])
     print('Condifence: {}'.format([np.round(c, 3) for c in confidence]))
-
     for i, e in enumerate(events):
         cap.set(cv2.CAP_PROP_POS_FRAMES, e)
         ret , img = cap.read()
@@ -130,14 +129,15 @@ def process_video(video_path, seq_length=64):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../test_video-5.mp4')
+    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../du.mp4')
     parser.add_argument('-s', '--seq-length', type=int, help='Number of frames to use per forward pass', default=64)
     args = parser.parse_args()
     seq_length = args.seq_length
 
     frame_list = process_video(args.path, seq_length=seq_length)
-    for name, img in frame_list:
-        cv2.imshow(name, img)
-        cv2.waitKey(0)     # press any key to go to next frame
-    cv2.destroyAllWindows()
+    for i, (event_name, img) in enumerate(frame_list):
+        filename = f"{i}_{event_name}.jpg"
+        save_path = os.path.join(output_dir, filename)
+        cv2.imwrite(save_path, img)
+    print(f"Saved {len(frame_list)} event frames to '{output_dir}/'")
 

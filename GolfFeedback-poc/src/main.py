@@ -4,7 +4,7 @@ from s2_2d_joints.metrics_calculate import calculate_all_metrics
 
 from ultralytics import YOLO
 
-VIDEO_PATH = "../test_video.mp4"
+VIDEO_PATH = "../du.mp4"
 YOLO_MODEL_PATH = "../models/yolov8n-pose.pt"
 METRIC_FILTER = {
     0: ["LOWER-ANGLE", "SHOULDER-ANGLE", "SPINE-ANGLE", "STANCE-RATIO", "UPPER-TILT"],
