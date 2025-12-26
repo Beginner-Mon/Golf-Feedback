@@ -281,11 +281,11 @@ if __name__ == "__main__":
     litmodel.load_state_dict(torch.load("output/BS/0/checkpoints/epoch=09-val_loss=1270.3485.ckpt")['state_dict'])
     
     # Plot single feature
-    print("\n=== PLOTTING ===")
-    plot_nam_feature(litmodel.model, dataset, feature_name=config.features_columns[0], target='maximize')
+    # print("\n=== PLOTTING ===")
+    # plot_nam_feature(litmodel.model, dataset, feature_name=config.features_columns[0], target='maximize')
     
     # Get all ideal values
-    # ideal_vals = get_ideal_values(litmodel.model, dataset, target='maximize')
-    # print("\n=== IDEAL VALUES ===")
-    # for feat, val in ideal_vals.items():
-    #     print(f"{feat}: {val:.2f}")
+    ideal_vals = get_ideal_values(litmodel.model, dataset, target='maximize')
+    print("\n=== IDEAL VALUES ===")
+    for feat, val in ideal_vals.items():
+        print(f"{feat}: {val:.2f}")

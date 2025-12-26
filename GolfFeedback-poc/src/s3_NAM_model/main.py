@@ -12,7 +12,7 @@ from nam.utils import parse_args
 from nam.utils import plot_mean_feature_importance
 from nam.utils import plot_nams
 import matplotlib.pyplot as plt
-from plot_figure import plot_nam_feature
+from process_metrics import plot_nam_feature
 def get_config():
     args = parse_args()
 

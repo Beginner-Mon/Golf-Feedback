@@ -9,7 +9,7 @@ import numpy as np
 import torch.nn.functional as F
 import os
 
-output_dir = "event_frames"
+output_dir = "s1_image_sequencing/event_frames"
 os.makedirs(output_dir, exist_ok=True)
 
 
@@ -128,6 +128,7 @@ def process_video(video_path, seq_length=64):
 
 
 if __name__ == '__main__':
+    # To run thí file, you need to be in src directory
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../test_video-5.mp4')
     parser.add_argument('-s', '--seq-length', type=int, help='Number of frames to use per forward pass', default=64)
@@ -139,5 +140,5 @@ if __name__ == '__main__':
         filename = f"{i}_{event_name}.jpg"
         save_path = os.path.join(output_dir, filename)
         cv2.imwrite(save_path, img)
-    print(f"Saved {len(frame_list)} event frames to '{output_dir}/'")
+    print(f"Saved {len(frame_list)} event frames to 's1_image_sequecing/{output_dir}/'")
 
