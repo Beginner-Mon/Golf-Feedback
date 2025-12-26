@@ -129,7 +129,7 @@ def process_video(video_path, seq_length=64):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../du.mp4')
+    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../test_video-5.mp4')
     parser.add_argument('-s', '--seq-length', type=int, help='Number of frames to use per forward pass', default=64)
     args = parser.parse_args()
     seq_length = args.seq_length

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 class DataProcessor:
     def __init__(self, file_path):
@@ -12,51 +13,33 @@ class DataProcessor:
         self.dtl = None
 
     def split_data(self):
-        """
-        Split the data into two DataFrames based on the 'View' column:
-        - self.faceon: Rows where View is 'FACEON'
-        - self.dtl: Rows where View is 'DTL'
-        """
+        """Split the data into FACEON and DTL views."""
         self.faceon = self.df[self.df['View'].str.upper() == 'FACEON'].copy()
         self.dtl = self.df[self.df['View'].str.upper() == 'DTL'].copy()
 
     def remove_empty_columns(self):
-        """
-        Remove columns that are entirely empty (all NaN) from each split DataFrame.
-        """
+        """Remove columns that are entirely empty."""
         if self.faceon is not None:
             self.faceon.dropna(axis=1, how='all', inplace=True)
         if self.dtl is not None:
             self.dtl.dropna(axis=1, how='all', inplace=True)
 
     def fill_missing_with_mode(self):
-        """
-        Fill missing values (NaN) or invalid non-numeric entries in each column 
-        using the most frequent valid value (mode) within each split group.
-        
-        - For numeric columns (even if containing strings like '#NAME?'), 
-          coerce to numeric and impute with the mode of valid numbers.
-        - For non-numeric columns, impute with the most frequent string value.
-        - If no mode exists, falls back to a reasonable default (0 for numeric, '' for object).
-        """
+        """Fill missing values using the mode of each column."""
         def impute_group(group):
             for col in group.columns:
-                if col == 'View':  # Skip View column
+                if col == 'View':
                     continue
                 
-                # Handle numeric columns with possible bad strings
-                numeric_series = (
-                    pd.to_numeric(group[col], errors='coerce')
-                    .replace([pd.NA, pd.NaT, float('inf'), float('-inf')], pd.NA)
-                )
-
+                # Try numeric first
+                numeric_series = pd.to_numeric(group[col], errors='coerce')
+                numeric_series.replace([pd.NA, pd.NaT, float('inf'), float('-inf')], pd.NA, inplace=True)
                 
-                if numeric_series.notnull().any():  # It's a numeric column
+                if numeric_series.notnull().any():  # Numeric column
                     mode_val = numeric_series.mode()
                     fill_value = mode_val[0] if not mode_val.empty else 0
                     group[col] = numeric_series.fillna(fill_value)
-                else:
-                    # Purely categorical/string column
+                else:  # Non-numeric column
                     mode_val = group[col].mode()
                     fill_value = mode_val[0] if not mode_val.empty else ''
                     group[col] = group[col].fillna(fill_value)
@@ -67,23 +50,47 @@ class DataProcessor:
         if self.dtl is not None:
             self.dtl = impute_group(self.dtl)
 
+    def create_binary_targets(self):
+        """
+        Create binary columns for DirectionAngle and SpinAxis:
+        - DirectionAngle_binary: 1 if within ±6°, else 0
+        - SpinAxis_binary: 1 if within ±10°, else 0
+        """
+        def add_binary_cols(df):
+            if 'DirectionAngle' in df.columns:
+                df['DirectionAngle_binary'] = np.where(df['DirectionAngle'].between(-6, 6), 1, 0)
+            if 'SpinAxis' in df.columns:
+                df['SpinAxis_binary'] = np.where(df['SpinAxis'].between(-10, 10), 1, 0)
+            return df
+
+        if self.faceon is not None:
+            self.faceon = add_binary_cols(self.faceon)
+        if self.dtl is not None:
+            self.dtl = add_binary_cols(self.dtl)
+
     def process_all(self):
         """
-        Convenience method to run the full pipeline: split -> remove empty columns -> fill missing values.
+        Run full pipeline:
+        1. Split data
+        2. Remove empty columns
+        3. Fill missing values
+        4. Create binary classification targets
         """
         self.split_data()
         self.remove_empty_columns()
         self.fill_missing_with_mode()
+        self.create_binary_targets()
+
 
 # Example usage
 if __name__ == "__main__":
     processor = DataProcessor('../data/CaddieSet.csv')
     processor.process_all()
-    
-    # Save the cleaned datasets if desired
+
+    # Save cleaned datasets
     processor.faceon.to_csv('faceon_cleaned.csv', index=False)
     processor.dtl.to_csv('dtl_cleaned.csv', index=False)
-    
+
     print(f"FACEON data: {processor.faceon.shape[0]} rows, {processor.faceon.shape[1]} columns")
     print(f"DTL data: {processor.dtl.shape[0]} rows, {processor.dtl.shape[1]} columns")
     print("Missing values after processing:", processor.faceon.isnull().sum().sum() + processor.dtl.isnull().sum().sum())

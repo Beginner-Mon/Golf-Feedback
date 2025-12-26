@@ -12,7 +12,7 @@ from nam.utils import parse_args
 from nam.utils import plot_mean_feature_importance
 from nam.utils import plot_nams
 import matplotlib.pyplot as plt
-
+from plot_figure import plot_nam_feature
 def get_config():
     args = parse_args()
 
@@ -83,11 +83,11 @@ def main():
             num_inputs=len(dataset[0][0]),
             num_units=get_num_units(config, dataset.features),
         )
-
+        
         # Folder hack
         tb_logger = TensorBoardLogger(save_dir=config.logdir, name=f'{model.name}', version=f'0')
 
-        checkpoint_callback = ModelCheckpoint(filename=tb_logger.log_dir + "/{epoch:02d}-{val_loss:.4f}",
+        checkpoint_callback = ModelCheckpoint(filename="{epoch:02d}-{val_loss:.4f}",
                                               monitor='val_loss',
                                               save_top_k=config.save_top_k,
                                               mode='min')
@@ -96,12 +96,14 @@ def main():
         trainer = pl.Trainer(logger=tb_logger, max_epochs=config.num_epochs, callbacks=[checkpoint_callback])
         trainer.fit(litmodel, trainloader, valloader)
 
-        trainer.test(litmodel, testloader, ckpt_path='best', verbose=True)
+        test_results = trainer.test(litmodel, testloader, ckpt_path='best', verbose=True)
+        plot_mean_feature_importance(litmodel.model, dataset)
+        plot_nams(litmodel.model, dataset, num_cols=1)
+        plot_nam_feature(litmodel.model, dataset, feature_name=config.features_columns[1], target='maximize')
 
-        # plot_mean_feature_importance(litmodel.model, dataset)
-        # plot_nams(litmodel.model, dataset, num_cols=1)
-        # plt.show()
 
 
 if __name__ == "__main__":
+# python main.py --data_path faceon_cleaned.csv --targets_column BallSpeed --features_columns 0-STANCE-RATIO 0-UPPER-TILT 3-HIP-SHIFTED 4-HEAD-LOC --regression True --shuffle True --use_dnn True --num_epochs 10 --learning_rate 0.001 --experiment_name BS --dataset_name faceon
+# python main.py --data_path faceon_cleaned.csv --targets_column DirectionAngle_binary --features_columns 0-STANCE-RATIO 1-HEAD-LOC 2-HEAD-LOC 2-SHOULDER-LOC  --shuffle True --use_dnn True --num_epochs 10 --learning_rate 0.001 --experiment_name DA --dataset_name faceon
     main()
