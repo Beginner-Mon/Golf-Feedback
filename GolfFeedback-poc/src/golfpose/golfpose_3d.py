@@ -940,16 +940,23 @@ if args.render:
     #     prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
     #     prediction += prediction_traj
     ### reshape prediction as ground truth
-    if ground_truth.shape[0] / receptive_field > ground_truth.shape[0] // receptive_field: 
-        batch_num = (ground_truth.shape[0] // receptive_field) +1
-        prediction2 = np.empty_like(ground_truth)
-        for i in range(batch_num-1):
-            prediction2[i*receptive_field:(i+1)*receptive_field,:,:] = prediction[i,:,:,:]
-        left_frames = ground_truth.shape[0] - (batch_num-1)*receptive_field
-        prediction2[-left_frames:,:,:] = prediction[-1,-left_frames:,:,:]
-        prediction = prediction2
-    elif ground_truth.shape[0] / receptive_field == ground_truth.shape[0] // receptive_field:
-        prediction.reshape(ground_truth.shape[0], 17, 3)
+    # Ensure prediction has shape (T, J, 3)
+    if prediction.ndim == 4:
+        # (B, T, J, 3) → concatenate along time
+        prediction = np.concatenate(prediction, axis=0)
+    elif prediction.ndim != 3:
+        raise ValueError(f"Unexpected prediction shape: {prediction.shape}")
+
+    T = ground_truth.shape[0]
+    J = prediction.shape[1]
+
+    # Pad or trim to match ground_truth length
+    prediction2 = np.zeros((T, J, 3), dtype=prediction.dtype)
+    length = min(T, prediction.shape[0])
+    prediction2[:length] = prediction[:length]
+
+    prediction = prediction2
+
 
     if args.viz_export is not None:
         print('Exporting joint positions to', args.viz_export)

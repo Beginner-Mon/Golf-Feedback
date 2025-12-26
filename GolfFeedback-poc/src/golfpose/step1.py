@@ -4,9 +4,9 @@ import mmcv
 import os
 
 # ---------------- CONFIG ----------------
-CONFIG_FILE = 'configs/mmdet/golfpose_detector_1cls_yolox_s.py'
-CHECKPOINT_FILE = 'golfpose_checkpoints/golfpose_detector_1cls_yolox_s.pth'
-IMAGE_FILE = 'golfswing/images/S1/S1_Swing_01.2120309/S1_Swing_01.2120309_000001.jpg'
+CONFIG_FILE = 'configs/mmdet/golfpose_detector_2cls_yolox_s.py'
+CHECKPOINT_FILE = 'golfpose_checkpoints/golfpose_detector_2cls_yolox_s.pth'
+IMAGE_FILE = 'golfswing\images\S1\S1_Swing_05.2120309\S1_Swing_05.2120309_000006.jpg'
 OUTPUT_FILE = 'detector_result.jpg'
 DEVICE = 'cuda:0'
 # --------------------------------------
