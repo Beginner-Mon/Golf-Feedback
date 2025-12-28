@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from paths import DATA_DIR
 class DataProcessor:
     def __init__(self, file_path):
         """
@@ -84,12 +84,12 @@ class DataProcessor:
 
 # Example usage
 if __name__ == "__main__":
-    processor = DataProcessor('../data/CaddieSet.csv')
+    processor = DataProcessor(DATA_DIR / "CaddieSet.csv")
     processor.process_all()
 
     # Save cleaned datasets
-    processor.faceon.to_csv('faceon_cleaned.csv', index=False)
-    processor.dtl.to_csv('dtl_cleaned.csv', index=False)
+    processor.faceon.to_csv(DATA_DIR / "faceon_cleaned.csv", index=False)
+    processor.dtl.to_csv(DATA_DIR / "dtl_cleaned.csv", index=False)
 
     print(f"FACEON data: {processor.faceon.shape[0]} rows, {processor.faceon.shape[1]} columns")
     print(f"DTL data: {processor.dtl.shape[0]} rows, {processor.dtl.shape[1]} columns")

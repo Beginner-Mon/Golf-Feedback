@@ -4,14 +4,13 @@ import torch
 from ultralytics import YOLO
 from s1_image_sequencing.test_video import process_video
 from s2_2d_joints.metrics_calculate import calculate_all_metrics
-
 from s3_NAM_model.nam.models import NAM, get_num_units
 from s3_NAM_model.nam.trainer import LitNAM
 from s3_NAM_model.nam.data import NAMDataset
 from s3_NAM_model.process_metrics import get_ideal_values, load_config_from_dicts
+from paths import MODELS_DIR, DATA_DIR, S3_DIR
 
-
-YOLO_MODEL_PATH = "../models/yolov8n-pose.pt"
+YOLO_MODEL_PATH = MODELS_DIR / "yolov8n-pose.pt"
 
 METRIC_FILTER = {
     0: ["LOWER-ANGLE", "SHOULDER-ANGLE", "SPINE-ANGLE", "STANCE-RATIO", "UPPER-TILT"],
@@ -72,7 +71,7 @@ def analyze_swing(video_path: str) -> dict:
     # ------------------------------
     # Load NAM
     # ------------------------------
-    config = load_config_from_dicts("s3_NAM_model/output/BS/0/hparams.yaml")
+    config = load_config_from_dicts(S3_DIR / "output/BS/0/hparams.yaml")
     config.data_path = "s3_NAM_model/faceon_cleaned.csv"
     dataset = NAMDataset(
         config,
@@ -91,7 +90,7 @@ def analyze_swing(video_path: str) -> dict:
     litmodel = LitNAM(config, model)
     litmodel.load_state_dict(
         torch.load(
-            "s3_NAM_model/output/BS/0/checkpoints/epoch=09-val_loss=1270.3485.ckpt"
+            S3_DIR / "output/BS/0/checkpoints/epoch=09-val_loss=1270.3485.ckpt"
         )["state_dict"]
     )
 
@@ -159,7 +158,7 @@ def analyze_swing(video_path: str) -> dict:
 # Local testing
 # ============================================================
 if __name__ == "__main__":
-    output = analyze_swing("../du.mp4")
+    output = analyze_swing(DATA_DIR / "du.mp4")
     for idx, data in output.items():
         print(f"\nEvent {idx} - {data['event']}")
         for m, v in data["metrics"].items():
