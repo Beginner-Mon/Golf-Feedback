@@ -2,22 +2,13 @@ import sys
 import os
 import torch
 from ultralytics import YOLO
-
-# ------------------------------
-# Path fix for NAM
-# ------------------------------
-ROOT = os.path.dirname(os.path.abspath(__file__))
-NAM_ROOT = os.path.join(ROOT, "s3_NAM_model")
-if NAM_ROOT not in sys.path:
-    sys.path.insert(0, NAM_ROOT)
-
 from s1_image_sequencing.test_video import process_video
 from s2_2d_joints.metrics_calculate import calculate_all_metrics
 
-from nam.models import NAM, get_num_units
-from nam.trainer import LitNAM
-from nam.data import NAMDataset
-from process_metrics import get_ideal_values, load_config_from_dicts
+from s3_NAM_model.nam.models import NAM, get_num_units
+from s3_NAM_model.nam.trainer import LitNAM
+from s3_NAM_model.nam.data import NAMDataset
+from s3_NAM_model.process_metrics import get_ideal_values, load_config_from_dicts
 
 
 YOLO_MODEL_PATH = "../models/yolov8n-pose.pt"

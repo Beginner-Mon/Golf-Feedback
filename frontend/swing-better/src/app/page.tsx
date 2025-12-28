@@ -69,6 +69,7 @@ export default function SwingAnalyzer() {
       }
 
       const data = await response.json();
+      console.log('Analysis results:', data);
       setResults(data.results);
     } catch (err) {
       setError('Failed to analyze video. Please try again.');
