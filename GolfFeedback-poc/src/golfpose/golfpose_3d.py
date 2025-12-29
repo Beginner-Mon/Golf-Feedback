@@ -147,7 +147,7 @@ for subject in sorted(dataset.subjects()):
                 print(f"    Root joint at frame 0: {pos_3d_meters[0, 0]}")
                 print(f"    Joint 1 at frame 0: {pos_3d_meters[0, 1]}")
 
-                positions_3d.append(pos_3d_meters)
+                positions_3d.append(pos_3d_relative)
 
             anim['positions_3d'] = positions_3d
             print(f"  Stored positions_3d with {len(positions_3d)} camera(s)")
@@ -1017,21 +1017,29 @@ if args.render:
     print(f"Flattened to: {prediction.shape}")
 
 # Step 2: Fix coordinate system
+# Replace the coordinate fixing section (around line 400-500) with this:
+
 print("\n=== Fixing Coordinate System ===")
-print("Swapping Y and Z axes, then flipping Z...")
 
-prediction_fixed = prediction.copy()
-prediction_fixed[:, :, 1] = prediction[:, :, 2]   # New Y = old Z
-prediction_fixed[:, :, 2] = -prediction[:, :, 1]  # New Z = -old Y
+# Define transformation function
+def transform_coordinates(data):
+    """Transform coordinates: swap Y/Z and flip Z"""
+    transformed = data.copy()
+    transformed[:, :, 1] = data[:, :, 2]   # New Y = old Z
+    transformed[:, :, 2] = -data[:, :, 1]  # New Z = -old Y
+    return transformed
 
-print(f"After coordinate fix:")
-print(f"  X std: {np.std(prediction_fixed[:, :, 0]):.4f}")
-print(f"  Y std: {np.std(prediction_fixed[:, :, 1]):.4f}")  
-print(f"  Z std: {np.std(prediction_fixed[:, :, 2]):.4f}")
+# Step 1: Flatten if batched
+if prediction.ndim == 4:
+    print(f"Flattening batched predictions from {prediction.shape}")
+    prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
+print(f"Flattened to: {prediction.shape}")
 
-prediction = prediction_fixed
+# Step 2: Transform prediction (root-relative)
+print("Transforming prediction coordinates...")
+prediction = transform_coordinates(prediction)
 
-# ===== TRIM TO MATCH GROUND TRUTH - DO THIS IMMEDIATELY =====
+# Step 3: Trim to match ground truth
 if ground_truth is not None:
     target_len = ground_truth.shape[0]
     print(f"\n=== Matching Lengths ===")
@@ -1039,13 +1047,56 @@ if ground_truth is not None:
     print(f"Ground truth: {target_len} frames")
     
     if prediction.shape[0] > target_len:
-        print(f"Trimming prediction from {prediction.shape[0]} to {target_len}")
         prediction = prediction[:target_len]
     elif prediction.shape[0] < target_len:
-        print(f"WARNING: Prediction shorter than GT, trimming GT")
         ground_truth = ground_truth[:prediction.shape[0]]
+
+# Step 4: Load absolute ground truth and reconstruct absolute prediction
+if args.viz_output is not None and ground_truth is not None:
+    print("\n=== Preparing Visualization ===")
     
-    print(f"After trim - Prediction: {prediction.shape}, GT: {ground_truth.shape}")
+    dataset_path_3d = 'golfswing/data_3d_' + args.dataset + '_gt.npz'
+    raw_data = np.load(dataset_path_3d, allow_pickle=True)
+    
+    if 'positions_3d' in raw_data:
+        all_positions = raw_data['positions_3d'].item()
+        original_positions = all_positions[args.viz_subject][args.viz_action]
+        
+        if isinstance(original_positions, list):
+            original_positions = original_positions[args.viz_camera]
+        
+        # Trim to match
+        original_positions = original_positions[:prediction.shape[0]]
+        if original_positions.shape[1] > prediction.shape[1]:
+            original_positions = original_positions[:, :prediction.shape[1], :]
+        
+        # Convert mm to meters if needed
+        if np.max(np.abs(original_positions)) > 10:
+            original_positions = original_positions / 1000.0
+        
+        # CRITICAL: Transform ground truth to match prediction coordinate system
+        print("Transforming ground truth to match prediction coordinates...")
+        original_positions = transform_coordinates(original_positions)
+        
+        # Extract trajectory (root joint positions)
+        trajectory = original_positions[:, :1, :].copy()
+        
+        # Reconstruct absolute prediction (now in same coordinate system)
+        prediction_absolute = prediction + trajectory
+        
+        print(f"After transformation:")
+        print(f"  Prediction: range=[{np.min(prediction_absolute):.3f}, {np.max(prediction_absolute):.3f}]")
+        print(f"  Ground truth: range=[{np.min(original_positions):.3f}, {np.max(original_positions):.3f}]")
+        
+        prediction_final = prediction_absolute
+        ground_truth_final = original_positions
+    else:
+        prediction_final = prediction
+        ground_truth_final = ground_truth
+else:
+    prediction_final = prediction
+    ground_truth_final = None
+
 
 # Step 4: Export if requested
 if args.viz_export is not None:
@@ -1056,117 +1107,118 @@ if args.viz_export is not None:
 if args.viz_output is not None:
     print("\n=== Preparing Visualization ===")
     
-    print(f"Prediction shape: {prediction.shape}")
+    print(f"Prediction shape (root-relative): {prediction.shape}")
     print(f"Prediction range: {np.min(prediction):.3f} to {np.max(prediction):.3f} meters")
     
     if ground_truth is not None:
         print(f"Ground truth shape: {ground_truth.shape}")
-        print(f"Ground truth range: {np.min(ground_truth):.3f} to {np.max(ground_truth):.3f} meters")
-        print("^^^ Ground truth is root-relative (expected small values)")
         
-        # Need to get ORIGINAL NON-NORMALIZED data
-        # The 'positions' key was already normalized to root-relative
-        # We need to load the raw data before normalization
-        
-        # Try to load from the original 3D data file
+        # Load ORIGINAL absolute positions (before root-relative conversion)
         dataset_path_3d = 'golfswing/data_3d_' + args.dataset + '_gt.npz'
         print(f"\nLoading original absolute positions from: {dataset_path_3d}")
         
         try:
             raw_data = np.load(dataset_path_3d, allow_pickle=True)
             
-            # Navigate to the specific subject/action
             if 'positions_3d' in raw_data:
                 all_positions = raw_data['positions_3d'].item()
                 original_positions = all_positions[args.viz_subject][args.viz_action]
                 
-                # Handle camera list format
                 if isinstance(original_positions, list):
                     original_positions = original_positions[args.viz_camera]
-                
-                print(f"Loaded raw positions shape: {original_positions.shape}")
-                print(f"Raw positions range: {np.min(original_positions):.3f} to {np.max(original_positions):.3f}")
                 
                 # Trim to match prediction length
                 original_positions = original_positions[:prediction.shape[0]]
                 
-                # Check if needs mm to meter conversion
+                # Trim joints if necessary
+                if original_positions.shape[1] > prediction.shape[1]:
+                    original_positions = original_positions[:, :prediction.shape[1], :]
+                
+                # Convert mm to meters if needed
                 data_max = np.max(np.abs(original_positions))
                 if data_max > 10:
                     print(f"Converting from mm to meters (max value: {data_max:.1f})")
                     original_positions = original_positions / 1000.0
                 
-                # Trim joints if necessary
-                if original_positions.shape[1] > prediction.shape[1]:
-                    print(f"Trimming joints from {original_positions.shape[1]} to {prediction.shape[1]}")
-                    original_positions = original_positions[:, :prediction.shape[1], :]
+                print(f"Loaded absolute GT: shape={original_positions.shape}, range=[{np.min(original_positions):.3f}, {np.max(original_positions):.3f}]")
                 
-                print(f"After processing - shape: {original_positions.shape}, range: {np.min(original_positions):.3f} to {np.max(original_positions):.3f}")
+                # ============================================
+                # KEY FIX: Reconstruct absolute predictions
+                # ============================================
+                # Extract trajectory (root joint positions over time)
+                trajectory = original_positions[:, :1, :].copy()  # (T, 1, 3)
+                print(f"Trajectory range: [{np.min(trajectory):.3f}, {np.max(trajectory):.3f}]")
                 
-                # Apply coordinate system fix
-                ground_truth_abs = original_positions.copy()
-                ground_truth_abs[:, :, 1] = original_positions[:, :, 2]   # New Y = old Z
-                ground_truth_abs[:, :, 2] = -original_positions[:, :, 1]  # New Z = -old Y
+                # Add trajectory to prediction (in ORIGINAL coordinate system)
+                prediction_absolute = prediction + trajectory
+                print(f"Prediction absolute: [{np.min(prediction_absolute):.3f}, {np.max(prediction_absolute):.3f}]")
                 
-                # Extract trajectory for prediction
-                trajectory = ground_truth_abs[:, :1, :].copy()
-                prediction_abs = prediction + trajectory
+                # ============================================
+                # Now BOTH are in absolute coordinates
+                # Check if coordinate transformation is needed
+                # ============================================
                 
-                print(f"\nFinal visualization data:")
-                print(f"  Prediction: {np.min(prediction_abs):.3f} to {np.max(prediction_abs):.3f}")
-                print(f"  Ground truth: {np.min(ground_truth_abs):.3f} to {np.max(ground_truth_abs):.3f}")
+                # Option 1: NO coordinate transformation (try this first!)
+                prediction_final = prediction_absolute
+                ground_truth_final = original_positions
                 
-                prediction_final = prediction_abs
-                ground_truth_final = ground_truth_abs
+                # Option 2: If visualization is wrong, try coordinate transformation
+                # Only apply if your visualization function expects a different system
+                # APPLY_TRANSFORM = False  # Set to True if needed
+                # if APPLY_TRANSFORM:
+                #     # Transform BOTH prediction and GT the same way
+                #     pred_transformed = prediction_absolute.copy()
+                #     pred_transformed[:, :, [1, 2]] = pred_transformed[:, :, [2, 1]]  # Swap Y and Z
+                #     pred_transformed[:, :, 2] *= -1  # Flip Z
+                #     
+                #     gt_transformed = original_positions.copy()
+                #     gt_transformed[:, :, [1, 2]] = gt_transformed[:, :, [2, 1]]
+                #     gt_transformed[:, :, 2] *= -1
+                #     
+                #     prediction_final = pred_transformed
+                #     ground_truth_final = gt_transformed
                 
             else:
                 raise KeyError("'positions_3d' not found in raw data file")
                 
         except Exception as e:
             print(f"ERROR loading raw data: {e}")
-            print("Falling back to root-relative visualization (no trajectory)")
-            
-            # Fallback: show both as root-relative
-            ground_truth_fixed = ground_truth.copy()
-            ground_truth_fixed[:, :, 1] = ground_truth[:, :, 2]
-            ground_truth_fixed[:, :, 2] = -ground_truth[:, :, 1]
-            
-            # Center both at origin
-            prediction[:, :, 2] -= np.min(prediction[:, :, 2])
-            ground_truth_fixed[:, :, 2] -= np.min(ground_truth_fixed[:, :, 2])
-            
             prediction_final = prediction
-            ground_truth_final = ground_truth_fixed
+            ground_truth_final = ground_truth
             
     else:
-        # No ground truth
-        prediction_final = prediction.copy()
-        prediction_final[:, :, 2] -= np.min(prediction_final[:, :, 2])
+        # No ground truth - show prediction only
+        prediction_final = prediction
         ground_truth_final = None
-        
     
-        # Create animation output
-        anim_output = {'Reconstruction': prediction_final}
-        
-        
-        if ground_truth_final is not None and not args.viz_no_ground_truth:
-            anim_output['Ground truth'] = ground_truth_final
-            print(f"Animation will show both Reconstruction and Ground truth")
-        else:
-            print(f"Animation will show only Reconstruction (no ground truth)")
+    print(f"\nFinal data for visualization:")
+    print(f"  Prediction: shape={prediction_final.shape}, range=[{np.min(prediction_final):.3f}, {np.max(prediction_final):.3f}]")
+    if ground_truth_final is not None:
+        print(f"  Ground truth: shape={ground_truth_final.shape}, range=[{np.min(ground_truth_final):.3f}, {np.max(ground_truth_final):.3f}]")
+    
+    # Create animation output
+    anim_output = {'Reconstruction': prediction_final}
+    
+    if ground_truth_final is not None and not args.viz_no_ground_truth:
+        anim_output['Ground truth'] = ground_truth_final
+        print(f"Animation will show both Reconstruction and Ground truth")
+    else:
+        print(f"Animation will show only Reconstruction (no ground truth)")
 
-        # Get camera for viewport info
-        cam = dataset.cameras()[args.viz_subject][args.viz_camera]
-        input_keypoints_viz = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
+    # Get camera for viewport info
+    cam = dataset.cameras()[args.viz_subject][args.viz_camera]
+    input_keypoints_viz = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
 
-        from common.visualization import render_animation_overlap
-        render_animation_overlap(input_keypoints_viz, keypoints_metadata, anim_output,
-                        dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
-                        limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
-                        input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
-                        input_video_skip=args.viz_skip, with_club=True if club_num != 0 else False)
-        
-        print(f"\n Successfully rendered {prediction_final.shape[0]} frames to {args.viz_output}")
+    print(f"\n=== Starting Rendering ===")
+    from common.visualization import render_animation_overlap
+    render_animation_overlap(input_keypoints_viz, keypoints_metadata, anim_output,
+                    dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
+                    limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
+                    input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
+                    input_video_skip=args.viz_skip, with_club=True if club_num != 0 else False)
+    
+    print(f"\n Successfully rendered {prediction_final.shape[0]} frames to {args.viz_output}")
+
         
         
 
