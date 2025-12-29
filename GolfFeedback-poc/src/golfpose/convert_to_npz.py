@@ -27,7 +27,7 @@ SUBJECT = 'G5'
 ACTION = 'swing'
 CAMERA = 0   # GolfPose assumes camera index exists
 
-OUTPUT_NPZ = 'outputs/golfpose_2d.npz'
+OUTPUT_NPZ = 'GolfFeedback-poc\src\golfpose\data\golf\detected/golfpose_2d.npz'
 # ============================
 
 

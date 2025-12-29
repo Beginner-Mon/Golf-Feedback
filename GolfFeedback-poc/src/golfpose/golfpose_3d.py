@@ -87,18 +87,22 @@ club_num = args.club_num
 total_num = human_num + club_num
 # end
 
-# dataset loading
 print('Loading dataset...')
-dataset_path = 'golfswing/data_3d_' + args.dataset + '_' + args.keypoints +'.npz'
+
+# IMPORTANT: For 3D ground truth, always use the 'gt' file
+# The keypoints parameter is only for which 2D detections to use
+dataset_path_3d = 'golfswing/data_3d_' + args.dataset + '_gt.npz'
+
 if args.dataset == 'h36m':
     from common.h36m_dataset import Human36mDataset
-    dataset = Human36mDataset(dataset_path)
+    dataset = Human36mDataset(dataset_path_3d)
 elif args.dataset == 'golf':
     from common.golf_dataset import GolfDataset
-    dataset = GolfDataset(dataset_path, args.keypoints)
+    # Use 'gt' for 3D data structure, but camera setup depends on keypoints type
+    dataset = GolfDataset(dataset_path_3d, args.keypoints)
 elif args.dataset.startswith('humaneva'):
     from common.humaneva_dataset import HumanEvaDataset
-    dataset = HumanEvaDataset(dataset_path)
+    dataset = HumanEvaDataset(dataset_path_3d)
 elif args.dataset.startswith('custom'):
     from common.custom_dataset import CustomDataset
     dataset = CustomDataset('data/data_2d_' + args.dataset + '_' + args.keypoints + '.npz')
@@ -111,50 +115,130 @@ for subject in sorted(dataset.subjects()):
         anim = dataset[subject][action]
 
         if 'positions' in anim:
-            # ---- FIX: unwrap single-camera list ----
+            # Unwrap single-camera list if needed
             if isinstance(anim['positions'], list):
                 anim['positions'] = anim['positions'][0]   # (T, J, 3)
 
-            # Trim frames
-            anim['positions'] = anim['positions'][:total_num, :]
+            print(f"\nProcessing {subject}/{action}")
+            print(f"  Original shape: {anim['positions'].shape}")
+            print(f"  Original range: {np.min(anim['positions']):.2f} to {np.max(anim['positions']):.2f}")
+
+            # Trim JOINTS dimension to total_num (keep all time frames)
+            if anim['positions'].shape[1] > total_num:
+                print(f"  Trimming joints from {anim['positions'].shape[1]} to {total_num}")
+                anim['positions'] = anim['positions'][:, :total_num, :]
 
             positions_3d = []
-            for cam in anim['cameras']:
-                # Convert units and coordinate systems
-                pos_3d_mm = anim['positions'] * 1000
-                pos_3d_world = vicon_to_world_golf(
-                    pos_3d_mm,
-                    cam['vicon_to_world_basis_dots'],
-                    cam['square_size']
-                )
-                pos_3d_cam = world_to_camera_golf(
-                    pos_3d_world,
-                    cam['orientation'],
-                    cam['translation_mm']
-                )
-                pos_3d = pos_3d_cam / 1000
+            for cam_idx, cam in enumerate(anim['cameras']):
+                # The loaded data is in mm (range 0-900), already in correct coordinate system
+                pos_3d_mm = anim['positions'].copy()
+                
+                # Convert mm to meters
+                pos_3d_meters = pos_3d_mm / 1000.0
+                
+                print(f"  Camera {cam_idx} after meter conversion: {np.min(pos_3d_meters):.4f} to {np.max(pos_3d_meters):.4f} m")
 
-                # Remove global offset (keep root trajectory)
-                pos_3d[:, 1:] -= pos_3d[:, :1]
+                # Make root-relative for training
+                # Subtract root position from all non-root joints
+                root_position = pos_3d_meters[:, :1, :].copy()
+                pos_3d_relative = pos_3d_meters - root_position
+                
+                print(f"  Camera {cam_idx} after root-relative: {np.min(pos_3d_meters):.4f} to {np.max(pos_3d_meters):.4f} m")
+                print(f"    Root joint at frame 0: {pos_3d_meters[0, 0]}")
+                print(f"    Joint 1 at frame 0: {pos_3d_meters[0, 1]}")
 
-                positions_3d.append(pos_3d)
+                positions_3d.append(pos_3d_meters)
 
             anim['positions_3d'] = positions_3d
+            print(f"  Stored positions_3d with {len(positions_3d)} camera(s)")
 
 print('Loading 2D detections...')
-keypoints = np.load('golfswing/data_2d_' + args.dataset + '_' + args.keypoints + '.npz', allow_pickle=True)
-keypoints_metadata = keypoints['metadata'].item()
-keypoints_symmetry = keypoints_metadata['keypoints_symmetry']
+keypoints_file = np.load('golfswing/data_2d_' + args.dataset + '_' + args.keypoints + '.npz', allow_pickle=True)
+
+# Check what keys are available
+available_keys = list(keypoints_file.keys())
+print(f"Available keys in 2D keypoints file: {available_keys}")
+
+# Try to load metadata from the detected file first, then fall back to GT file
+keypoints_metadata = None
+
+if 'metadata' in keypoints_file:
+    keypoints_metadata = keypoints_file['metadata'].item()
+    print("Using metadata from detected keypoints file")
+else:
+    print("WARNING: No metadata in detected keypoints file. Trying GT file...")
+    # Try to load metadata from GT file
+    try:
+        gt_keypoints_file = np.load('golfswing/data_2d_' + args.dataset + '_gt.npz', allow_pickle=True)
+        if 'metadata' in gt_keypoints_file:
+            keypoints_metadata = gt_keypoints_file['metadata'].item()
+            print("Using metadata from GT keypoints file")
+        gt_keypoints_file.close()
+    except:
+        pass
+
+# If still no metadata, create default
+if keypoints_metadata is None:
+    print("WARNING: No metadata found. Creating default metadata for 22 joints.")
+    keypoints_metadata = {
+        'layout_name': 'golf',
+        'num_joints': 22,
+        'keypoints_symmetry': [
+            [1, 3, 5, 7, 9, 11],   # left joints (based on GT file)
+            [2, 4, 6, 8, 10, 12]   # right joints (based on GT file)
+        ]
+    }
+
+print(f"Metadata: {keypoints_metadata}")
+
+# Extract symmetry info
+keypoints_symmetry = keypoints_metadata.get('keypoints_symmetry', [[1, 3, 5, 7, 9, 11], [2, 4, 6, 8, 10, 12]])
 kps_left, kps_right = list(keypoints_symmetry[0]), list(keypoints_symmetry[1])
 joints_left, joints_right = list(dataset.skeleton().joints_left()), list(dataset.skeleton().joints_right())
-keypoints = keypoints['positions_2d'].item()
 
-# yuchen - remove 2D club kps if no club
+print(f"Keypoint symmetry - Left: {kps_left}, Right: {kps_right}")
+print(f"Joint symmetry - Left: {joints_left}, Right: {joints_right}")
+
+# Load positions_2d
+if 'positions_2d' in keypoints_file:
+    keypoints = keypoints_file['positions_2d'].item()
+elif 'positions' in keypoints_file:
+    keypoints = keypoints_file['positions'].item()
+else:
+    raise KeyError(f"Could not find 2D positions in keypoints file. Available keys: {available_keys}")
+
+print(f"Loaded 2D keypoints for subjects: {list(keypoints.keys())}")
+
+# Check the structure and convert if needed
+for subject in keypoints.keys():
+    print(f"Subject {subject} actions: {list(keypoints[subject].keys())}")
+    for action in keypoints[subject].keys():
+        action_data = keypoints[subject][action]
+        print(f"  Action {action}: type={type(action_data)}, shape={action_data.shape if hasattr(action_data, 'shape') else 'N/A'}")
+        
+        # If it's a single array (T, J, 2), wrap it in a list for camera dimension
+        if isinstance(action_data, np.ndarray) and action_data.ndim == 3:
+            print(f"    Converting to list format for camera compatibility")
+            keypoints[subject][action] = [action_data]
+
+# yuchen - remove 2D club kps if no club (trim to total_num joints)
 for subject in sorted(keypoints.keys()):
     for action in sorted(keypoints[subject]):
-        for cam_idx, kps in enumerate(keypoints[subject][action]):
-            keypoints[subject][action][cam_idx] = keypoints[subject][action][cam_idx][..., :total_num, :]
+        if isinstance(keypoints[subject][action], list):
+            for cam_idx in range(len(keypoints[subject][action])):
+                original_shape = keypoints[subject][action][cam_idx].shape
+                keypoints[subject][action][cam_idx] = keypoints[subject][action][cam_idx][..., :total_num, :]
+                new_shape = keypoints[subject][action][cam_idx].shape
+                print(f"  Trimmed {subject}/{action}/cam{cam_idx}: {original_shape} -> {new_shape}")
+        else:
+            original_shape = keypoints[subject][action].shape
+            keypoints[subject][action] = keypoints[subject][action][..., :total_num, :]
+            new_shape = keypoints[subject][action].shape
+            print(f"  Trimmed {subject}/{action}: {original_shape} -> {new_shape}")
+
+# Update metadata with actual number of joints being used
 keypoints_metadata['num_joints'] = total_num
+print(f"Using {total_num} joints ({human_num} human + {club_num} club)")
 # end
 
 ###################
@@ -901,6 +985,7 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
 
     return e1, e1_human, e1_club, e2, e3, ev
 
+
 if args.render:
     print('Rendering...')
 
@@ -912,124 +997,178 @@ if args.render:
     if ground_truth is None:
         print('INFO: this action is unlabeled. Ground truth will not be rendered.')
 
+    print(f"Original data - Input: {input_keypoints.shape}, GT: {ground_truth.shape if ground_truth is not None else None}")
+    
     gen = UnchunkedGenerator_Seq(None, [ground_truth], [input_keypoints],
                              pad=pad, causal_shift=causal_shift, augment=args.test_time_augmentation,
                              kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
+    
+    print(f'INFO: Generator reports {gen.num_frames()} frames')
+    
+    # Get predictions
     prediction = evaluate(gen, return_predictions=True)
-    if args.compare:
-        from common.model_poseformer import PoseTransformer
-        model_pf = PoseTransformer(num_frame=81, num_joints=17, in_chans=2, num_heads=8, mlp_ratio=2., qkv_bias=False, qk_scale=None,drop_path_rate=0.1)
-        if torch.cuda.is_available():
-            model_pf = nn.DataParallel(model_pf)
-            model_pf = model_pf.cuda()
-        prediction_pf = evaluate(gen, newmodel=model_pf, return_predictions=True)
-        
-        # ### reshape prediction_pf as ground truth
-        # if ground_truth.shape[0] / receptive_field > ground_truth.shape[0] // receptive_field: 
-        #     batch_num = (ground_truth.shape[0] // receptive_field) +1
-        #     prediction_pf_2 = np.empty_like(ground_truth)
-        #     for i in range(batch_num-1):
-        #         prediction_pf_2[i*receptive_field:(i+1)*receptive_field,:,:] = prediction_pf[i,:,:,:]
-        #     left_frames = ground_truth.shape[0] - (batch_num-1)*receptive_field
-        #     prediction_pf_2[-left_frames:,:,:] = prediction_pf[-1,-left_frames:,:,:]
-        #     prediction_pf = prediction_pf_2
-        # elif ground_truth.shape[0] / receptive_field == ground_truth.shape[0] // receptive_field:
-        #     prediction_pf.reshape(ground_truth.shape[0], 17, 3)
-
-    # if model_traj is not None and ground_truth is None:
-    #     prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
-    #     prediction += prediction_traj
-    ### reshape prediction as ground truth
-    # Ensure prediction has shape (T, J, 3)
+    
+    print(f"Prediction shape after evaluate: {prediction.shape}")
+    
+    # Step 1: Flatten if batched
     if prediction.ndim == 4:
-        # (B, T, J, 3) → concatenate along time
-        prediction = np.concatenate(prediction, axis=0)
-    elif prediction.ndim != 3:
-        raise ValueError(f"Unexpected prediction shape: {prediction.shape}")
+        print(f"Flattening batched predictions from {prediction.shape}")
+    prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
+    print(f"Flattened to: {prediction.shape}")
 
-    T = ground_truth.shape[0]
-    J = prediction.shape[1]
+# Step 2: Fix coordinate system
+print("\n=== Fixing Coordinate System ===")
+print("Swapping Y and Z axes, then flipping Z...")
 
-    # Pad or trim to match ground_truth length
-    prediction2 = np.zeros((T, J, 3), dtype=prediction.dtype)
-    length = min(T, prediction.shape[0])
-    prediction2[:length] = prediction[:length]
+prediction_fixed = prediction.copy()
+prediction_fixed[:, :, 1] = prediction[:, :, 2]   # New Y = old Z
+prediction_fixed[:, :, 2] = -prediction[:, :, 1]  # New Z = -old Y
 
-    prediction = prediction2
+print(f"After coordinate fix:")
+print(f"  X std: {np.std(prediction_fixed[:, :, 0]):.4f}")
+print(f"  Y std: {np.std(prediction_fixed[:, :, 1]):.4f}")  
+print(f"  Z std: {np.std(prediction_fixed[:, :, 2]):.4f}")
 
+prediction = prediction_fixed
 
-    if args.viz_export is not None:
-        print('Exporting joint positions to', args.viz_export)
-        # Predictions are in camera space
-        np.save(args.viz_export, prediction)
+# ===== TRIM TO MATCH GROUND TRUTH - DO THIS IMMEDIATELY =====
+if ground_truth is not None:
+    target_len = ground_truth.shape[0]
+    print(f"\n=== Matching Lengths ===")
+    print(f"Prediction: {prediction.shape[0]} frames")
+    print(f"Ground truth: {target_len} frames")
+    
+    if prediction.shape[0] > target_len:
+        print(f"Trimming prediction from {prediction.shape[0]} to {target_len}")
+        prediction = prediction[:target_len]
+    elif prediction.shape[0] < target_len:
+        print(f"WARNING: Prediction shorter than GT, trimming GT")
+        ground_truth = ground_truth[:prediction.shape[0]]
+    
+    print(f"After trim - Prediction: {prediction.shape}, GT: {ground_truth.shape}")
 
-    if args.viz_output is not None:
-        if ground_truth is not None:
-            # Reapply trajectory
-            trajectory = ground_truth[:, :1]
-            ground_truth[:, 1:] += trajectory
-            prediction += trajectory
-            if args.compare:
-                prediction_pf += trajectory
+# Step 4: Export if requested
+if args.viz_export is not None:
+    print('Exporting joint positions to', args.viz_export)
+    np.save(args.viz_export, prediction)
 
-        # Invert camera transformation
-        cam = dataset.cameras()[args.viz_subject][args.viz_camera]
-        if ground_truth is not None:
-            if args.compare:
-                prediction_pf = camera_to_world(prediction_pf, R=cam['orientation'], t=cam['translation'])
-            # prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
-            # ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
+# Step 5: Prepare for visualization
+if args.viz_output is not None:
+    print("\n=== Preparing Visualization ===")
+    
+    print(f"Prediction shape: {prediction.shape}")
+    print(f"Prediction range: {np.min(prediction):.3f} to {np.max(prediction):.3f} meters")
+    
+    if ground_truth is not None:
+        print(f"Ground truth shape: {ground_truth.shape}")
+        print(f"Ground truth range: {np.min(ground_truth):.3f} to {np.max(ground_truth):.3f} meters")
+        print("^^^ Ground truth is root-relative (expected small values)")
+        
+        # Need to get ORIGINAL NON-NORMALIZED data
+        # The 'positions' key was already normalized to root-relative
+        # We need to load the raw data before normalization
+        
+        # Try to load from the original 3D data file
+        dataset_path_3d = 'golfswing/data_3d_' + args.dataset + '_gt.npz'
+        print(f"\nLoading original absolute positions from: {dataset_path_3d}")
+        
+        try:
+            raw_data = np.load(dataset_path_3d, allow_pickle=True)
             
-            ###### yuchen
-            prediction = prediction * 1000
-            ground_truth = ground_truth * 1000
-
-            prediction = camera_to_world_golf(prediction, cam['orientation'], cam['translation_mm'])
-            ground_truth = camera_to_world_golf(ground_truth, cam['orientation'], cam['translation_mm'])
-            prediction = world_to_vicon_golf(prediction, cam['world_to_vicon_basis_dots'])
-            ground_truth = world_to_vicon_golf(ground_truth, cam['world_to_vicon_basis_dots'])
-
-            prediction /= 1000
-            ground_truth /= 1000
-            ###
-        else:
-            # If the ground truth is not available, take the camera extrinsic params from a random subject.
-            # They are almost the same, and anyway, we only need this for visualization purposes.
-            for subject in sorted(dataset.cameras()):
-                if 'orientation' in dataset.cameras()[subject][args.viz_camera]:
-                    rot = dataset.cameras()[subject][args.viz_camera]['orientation']
-                    break
-            if args.compare:
-                prediction_pf = camera_to_world(prediction_pf, R=rot, t=0)
-                prediction_pf[:, :, 2] -= np.min(prediction_pf[:, :, 2])
-            prediction = camera_to_world(prediction, R=rot, t=0)
-            # We don't have the trajectory, but at least we can rebase the height
+            # Navigate to the specific subject/action
+            if 'positions_3d' in raw_data:
+                all_positions = raw_data['positions_3d'].item()
+                original_positions = all_positions[args.viz_subject][args.viz_action]
+                
+                # Handle camera list format
+                if isinstance(original_positions, list):
+                    original_positions = original_positions[args.viz_camera]
+                
+                print(f"Loaded raw positions shape: {original_positions.shape}")
+                print(f"Raw positions range: {np.min(original_positions):.3f} to {np.max(original_positions):.3f}")
+                
+                # Trim to match prediction length
+                original_positions = original_positions[:prediction.shape[0]]
+                
+                # Check if needs mm to meter conversion
+                data_max = np.max(np.abs(original_positions))
+                if data_max > 10:
+                    print(f"Converting from mm to meters (max value: {data_max:.1f})")
+                    original_positions = original_positions / 1000.0
+                
+                # Trim joints if necessary
+                if original_positions.shape[1] > prediction.shape[1]:
+                    print(f"Trimming joints from {original_positions.shape[1]} to {prediction.shape[1]}")
+                    original_positions = original_positions[:, :prediction.shape[1], :]
+                
+                print(f"After processing - shape: {original_positions.shape}, range: {np.min(original_positions):.3f} to {np.max(original_positions):.3f}")
+                
+                # Apply coordinate system fix
+                ground_truth_abs = original_positions.copy()
+                ground_truth_abs[:, :, 1] = original_positions[:, :, 2]   # New Y = old Z
+                ground_truth_abs[:, :, 2] = -original_positions[:, :, 1]  # New Z = -old Y
+                
+                # Extract trajectory for prediction
+                trajectory = ground_truth_abs[:, :1, :].copy()
+                prediction_abs = prediction + trajectory
+                
+                print(f"\nFinal visualization data:")
+                print(f"  Prediction: {np.min(prediction_abs):.3f} to {np.max(prediction_abs):.3f}")
+                print(f"  Ground truth: {np.min(ground_truth_abs):.3f} to {np.max(ground_truth_abs):.3f}")
+                
+                prediction_final = prediction_abs
+                ground_truth_final = ground_truth_abs
+                
+            else:
+                raise KeyError("'positions_3d' not found in raw data file")
+                
+        except Exception as e:
+            print(f"ERROR loading raw data: {e}")
+            print("Falling back to root-relative visualization (no trajectory)")
+            
+            # Fallback: show both as root-relative
+            ground_truth_fixed = ground_truth.copy()
+            ground_truth_fixed[:, :, 1] = ground_truth[:, :, 2]
+            ground_truth_fixed[:, :, 2] = -ground_truth[:, :, 1]
+            
+            # Center both at origin
             prediction[:, :, 2] -= np.min(prediction[:, :, 2])
+            ground_truth_fixed[:, :, 2] -= np.min(ground_truth_fixed[:, :, 2])
+            
+            prediction_final = prediction
+            ground_truth_final = ground_truth_fixed
+            
+    else:
+        # No ground truth
+        prediction_final = prediction.copy()
+        prediction_final[:, :, 2] -= np.min(prediction_final[:, :, 2])
+        ground_truth_final = None
         
-        if args.compare:
-            anim_output = {'PoseFormer': prediction_pf}
-            anim_output['Ours'] = prediction
-            # print(prediction_pf.shape, prediction.shape)
+    
+        # Create animation output
+        anim_output = {'Reconstruction': prediction_final}
+        
+        
+        if ground_truth_final is not None and not args.viz_no_ground_truth:
+            anim_output['Ground truth'] = ground_truth_final
+            print(f"Animation will show both Reconstruction and Ground truth")
         else:
-            anim_output = {'Reconstruction': prediction}
-            # anim_output = {'Reconstruction': ground_truth + np.random.normal(loc=0.0, scale=0.1, size=[ground_truth.shape[0], 17, 3])}
-        
-        if ground_truth is not None and not args.viz_no_ground_truth:
-            anim_output['Ground truth'] = ground_truth
+            print(f"Animation will show only Reconstruction (no ground truth)")
 
-        input_keypoints = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
+        # Get camera for viewport info
+        cam = dataset.cameras()[args.viz_subject][args.viz_camera]
+        input_keypoints_viz = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
 
-        from common.visualization import render_animation, render_animation_overlap
-        # render_animation(input_keypoints, keypoints_metadata, anim_output,
-        #                 dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
-        #                 limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
-        #                 input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
-        #                 input_video_skip=args.viz_skip)
-        render_animation_overlap(input_keypoints, keypoints_metadata, anim_output,
+        from common.visualization import render_animation_overlap
+        render_animation_overlap(input_keypoints_viz, keypoints_metadata, anim_output,
                         dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
                         limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
                         input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
-                        input_video_skip=args.viz_skip, with_club= True if club_num != 0 else False)
+                        input_video_skip=args.viz_skip, with_club=True if club_num != 0 else False)
+        
+        print(f"\n Successfully rendered {prediction_final.shape[0]} frames to {args.viz_output}")
+        
+        
 
 else:
     print('Evaluating...')
@@ -1131,3 +1270,4 @@ else:
             print('')
 if not args.nolog:
     writer.close()
+
