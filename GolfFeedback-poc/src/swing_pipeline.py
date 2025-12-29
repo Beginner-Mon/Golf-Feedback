@@ -36,7 +36,17 @@ METRIC_FILTER = {
     7: ["FINISH-ANGLE", "HIP-ANGLE", "HIP-LINE", "HIP-SHIFTED",
         "SHOULDER-ANGLE", "SPINE-ANGLE"],
 }
-
+COCO_KEYPOINTS = [
+    "nose",
+    "left_eye", "right_eye",
+    "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist",
+    "left_hip", "right_hip",
+    "left_knee", "right_knee",
+    "left_ankle", "right_ankle",
+]
 
 # ============================================================
 # Feedback logic (NOW INLINE)
@@ -59,13 +69,67 @@ def generate_feedback(current: float, ideal: float, tol_ratio: float = 0.05) -> 
         return "TOO_LOW"
 
 
-# ============================================================
-# Core pipeline
-# ============================================================
-def analyze_swing(video_path: str) -> dict:
+
+def get_event_frames(video_path: str):
     """
-    Core swing analysis pipeline.
-    Reused by CLI and FastAPI.
+    Stage 1:
+    Input  : video path
+    Output : list[(event_name, frame_img)]
+    """
+    return process_video(video_path)
+
+
+def get_2d_joints(event_frames):
+    """
+    Returns joints in strict COCO order:
+    joints[event_idx]["joints"] -> List[[x, y]] length = 17
+    """
+
+    yolo_model = YOLO(YOLO_MODEL_PATH)
+
+    joints_by_event = {}
+    k_address = None
+
+    for idx, (event_name, frame_img) in enumerate(event_frames):
+
+        results = yolo_model(frame_img)
+
+        for r in results:
+            if r.boxes is None or r.keypoints is None:
+                continue
+
+            for i, box in enumerate(r.boxes):
+                if yolo_model.names[int(box.cls[0])] != "person":
+                    continue
+
+                # YOLOv8 already outputs COCO-ordered keypoints
+                kpts = r.keypoints.xy[i].tolist()  # shape (17, 2)
+
+                # Safety: enforce length
+                if len(kpts) != 17:
+                    continue
+
+                joints = [
+                    [float(x), float(y)] for x, y in kpts
+                ]
+
+                if k_address is None:
+                    k_address = joints
+
+                joints_by_event[idx] = {
+                    "event": event_name,
+                    "joints": joints,        # COCO order
+                    "k_address": k_address,  # internal use only
+                }
+
+    return joints_by_event
+
+
+def get_metrics(joints_by_event):
+    """
+    Stage 3:
+    Input  : joints_by_event
+    Output : metrics_by_event
     """
 
     # ------------------------------
@@ -73,6 +137,7 @@ def analyze_swing(video_path: str) -> dict:
     # ------------------------------
     config = load_config_from_dicts(S3_DIR / "output/BS/0/hparams.yaml")
     config.data_path = "s3_NAM_model/faceon_cleaned.csv"
+
     dataset = NAMDataset(
         config,
         data_path=config.data_path,
@@ -97,69 +162,80 @@ def analyze_swing(video_path: str) -> dict:
     ideal_values = get_ideal_values(litmodel.model, dataset)
 
     # ------------------------------
-    # Video + YOLO
+    # Compute metrics
     # ------------------------------
-    event_frames = process_video(video_path)
-    yolo_model = YOLO(YOLO_MODEL_PATH)
+    metrics_by_event = {}
 
-    k_address = None
-    results_by_event = {}
+    for idx, data in joints_by_event.items():
+        joints = data["joints"]
+        k_address = data["k_address"]
+        event_name = data["event"]
 
-    for idx, (event_name, frame_img) in enumerate(event_frames):
+        metrics = calculate_all_metrics(joints, k_address)
+        needed = METRIC_FILTER[idx]
 
-        results = yolo_model(frame_img)
+        event_metrics = {}
 
-        for r in results:
-            if r.boxes is None or r.keypoints is None:
+        for metric_name in needed:
+            if metric_name not in metrics:
                 continue
 
-            for i, box in enumerate(r.boxes):
-                if yolo_model.names[int(box.cls[0])] != "person":
-                    continue
+            ideal_key = f"{idx}-{metric_name}"
+            if ideal_key not in ideal_values:
+                continue
 
-                kpts = r.keypoints.xy[i]
-                keypoints = [(float(x), float(y)) for x, y in kpts]
+            current = metrics[metric_name]
+            ideal = ideal_values[ideal_key]
 
-                if k_address is None:
-                    k_address = keypoints
+            event_metrics[metric_name] = {
+                "current": round(current, 2),
+                "ideal": round(ideal, 2),
+                "delta": round(current - ideal, 2),
+                "feedback": generate_feedback(current, ideal),
+            }
 
-                metrics = calculate_all_metrics(keypoints, k_address)
-                needed = METRIC_FILTER[idx]
+        metrics_by_event[idx] = {
+            "event": event_name,
+            "metrics": event_metrics,
+        }
 
-                event_feedback = {}
+    return metrics_by_event
 
-                for metric_name in needed:
-                    if metric_name not in metrics:
-                        continue
+def main():
+    video_path = DATA_DIR / "du.mp4"
 
-                    ideal_key = f"{idx}-{metric_name}"
-                    if ideal_key not in ideal_values:
-                        continue
+    # ------------------------------
+    # Stage 1: Event frames
+    # ------------------------------
+    event_frames = get_event_frames(video_path)
+    print(f"[Stage 1] Extracted {len(event_frames)} event frames")
 
-                    current = metrics[metric_name]
-                    ideal = ideal_values[ideal_key]
+    # ------------------------------
+    # Stage 2: 2D joints
+    # ------------------------------
+    joints_by_event = get_2d_joints(event_frames)
+    print(f"[Stage 2] Detected joints for {len(joints_by_event)} events")
 
-                    event_feedback[metric_name] = {
-                        "current": round(current, 2),
-                        "ideal": round(ideal, 2),
-                        "delta": round(current - ideal, 2),
-                        "feedback": generate_feedback(current, ideal),
-                    }
+    # ------------------------------
+    # Stage 3: Metrics + feedback
+    # ------------------------------
+    metrics_by_event = get_metrics(joints_by_event)
+    print(f"[Stage 3] Computed metrics for {len(metrics_by_event)} events")
 
-                results_by_event[idx] = {
-                    "event": event_name,
-                    "metrics": event_feedback,
-                }
-
-    return results_by_event
-
-
-# ============================================================
-# Local testing
-# ============================================================
-if __name__ == "__main__":
-    output = analyze_swing(DATA_DIR / "du.mp4")
-    for idx, data in output.items():
+    # ------------------------------
+    # Print results
+    # ------------------------------
+    for idx, data in metrics_by_event.items():
         print(f"\nEvent {idx} - {data['event']}")
-        for m, v in data["metrics"].items():
-            print(m, v)
+        for metric_name, values in data["metrics"].items():
+            print(
+                f"  {metric_name}: "
+                f"current={values['current']}, "
+                f"ideal={values['ideal']}, "
+                f"delta={values['delta']}, "
+                f"feedback={values['feedback']}"
+            )
+
+
+if __name__ == "__main__":
+    main()

@@ -102,4 +102,3 @@ if __name__ == "__main__":
         image_name=image_name
     )
 
-    print(f"[✓] Done. Saved to {args.output}")
