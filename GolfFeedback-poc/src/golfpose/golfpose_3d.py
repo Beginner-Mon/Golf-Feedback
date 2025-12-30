@@ -1010,14 +1010,9 @@ if args.render:
     
     print(f"Prediction shape after evaluate: {prediction.shape}")
     
-    # Step 1: Flatten if batched
-    if prediction.ndim == 4:
-        print(f"Flattening batched predictions from {prediction.shape}")
-    prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
-    print(f"Flattened to: {prediction.shape}")
+
 
 # Step 2: Fix coordinate system
-# Replace the coordinate fixing section (around line 400-500) with this:
 
 print("\n=== Fixing Coordinate System ===")
 
@@ -1025,8 +1020,9 @@ print("\n=== Fixing Coordinate System ===")
 def transform_coordinates(data):
     """Transform coordinates: swap Y/Z and flip Z"""
     transformed = data.copy()
-    transformed[:, :, 1] = data[:, :, 2]   # New Y = old Z
-    transformed[:, :, 2] = -data[:, :, 1]  # New Z = -old Y
+    transformed[:, :, 0] = -data[:, :, 0]  # FIX: flip X
+    transformed[:, :, 1] = data[:, :, 2]   # Y = old Z
+    transformed[:, :, 2] = -data[:, :, 1]   # New Z = -old Y
     return transformed
 
 # Step 1: Flatten if batched
@@ -1090,6 +1086,8 @@ if args.viz_output is not None and ground_truth is not None:
         
         prediction_final = prediction_absolute
         ground_truth_final = original_positions
+        
+
     else:
         prediction_final = prediction
         ground_truth_final = ground_truth
@@ -1107,13 +1105,14 @@ if args.viz_export is not None:
 if args.viz_output is not None:
     print("\n=== Preparing Visualization ===")
     
+    # Step 1: Flatten prediction if batched
+    if prediction.ndim == 4:
+        print(f"Flattening batched predictions from {prediction.shape}")
+        prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
     print(f"Prediction shape (root-relative): {prediction.shape}")
-    print(f"Prediction range: {np.min(prediction):.3f} to {np.max(prediction):.3f} meters")
     
     if ground_truth is not None:
-        print(f"Ground truth shape: {ground_truth.shape}")
-        
-        # Load ORIGINAL absolute positions (before root-relative conversion)
+        # Step 2: Load ORIGINAL absolute positions (NO TRANSFORMATION)
         dataset_path_3d = 'golfswing/data_3d_' + args.dataset + '_gt.npz'
         print(f"\nLoading original absolute positions from: {dataset_path_3d}")
         
@@ -1129,54 +1128,31 @@ if args.viz_output is not None:
                 
                 # Trim to match prediction length
                 original_positions = original_positions[:prediction.shape[0]]
-                
-                # Trim joints if necessary
                 if original_positions.shape[1] > prediction.shape[1]:
                     original_positions = original_positions[:, :prediction.shape[1], :]
                 
                 # Convert mm to meters if needed
-                data_max = np.max(np.abs(original_positions))
-                if data_max > 10:
-                    print(f"Converting from mm to meters (max value: {data_max:.1f})")
+                if np.max(np.abs(original_positions)) > 10:
                     original_positions = original_positions / 1000.0
                 
-                print(f"Loaded absolute GT: shape={original_positions.shape}, range=[{np.min(original_positions):.3f}, {np.max(original_positions):.3f}]")
+                print(f"Loaded absolute GT: shape={original_positions.shape}")
+                print(f"  Range: [{np.min(original_positions):.3f}, {np.max(original_positions):.3f}]")
                 
                 # ============================================
-                # KEY FIX: Reconstruct absolute predictions
+                # SIMPLE APPROACH: Don't transform anything
+                # Just extract trajectory and add to prediction
                 # ============================================
-                # Extract trajectory (root joint positions over time)
-                trajectory = original_positions[:, :1, :].copy()  # (T, 1, 3)
-                print(f"Trajectory range: [{np.min(trajectory):.3f}, {np.max(trajectory):.3f}]")
-                
-                # Add trajectory to prediction (in ORIGINAL coordinate system)
+                trajectory = original_positions[:, :1, :].copy()
                 prediction_absolute = prediction + trajectory
-                print(f"Prediction absolute: [{np.min(prediction_absolute):.3f}, {np.max(prediction_absolute):.3f}]")
                 
-                # ============================================
-                # Now BOTH are in absolute coordinates
-                # Check if coordinate transformation is needed
-                # ============================================
-                
-                # Option 1: NO coordinate transformation (try this first!)
                 prediction_final = prediction_absolute
                 ground_truth_final = original_positions
                 
-                # Option 2: If visualization is wrong, try coordinate transformation
-                # Only apply if your visualization function expects a different system
-                # APPLY_TRANSFORM = False  # Set to True if needed
-                # if APPLY_TRANSFORM:
-                #     # Transform BOTH prediction and GT the same way
-                #     pred_transformed = prediction_absolute.copy()
-                #     pred_transformed[:, :, [1, 2]] = pred_transformed[:, :, [2, 1]]  # Swap Y and Z
-                #     pred_transformed[:, :, 2] *= -1  # Flip Z
-                #     
-                #     gt_transformed = original_positions.copy()
-                #     gt_transformed[:, :, [1, 2]] = gt_transformed[:, :, [2, 1]]
-                #     gt_transformed[:, :, 2] *= -1
-                #     
-                #     prediction_final = pred_transformed
-                #     ground_truth_final = gt_transformed
+                print(f"\nFinal data (no transformation):")
+                print(f"  Prediction: [{np.min(prediction_final):.3f}, {np.max(prediction_final):.3f}]")
+                print(f"  Ground truth: [{np.min(ground_truth_final):.3f}, {np.max(ground_truth_final):.3f}]")
+                print(f"  Prediction frame 0, joint 0: {prediction_final[0, 0]}")
+                print(f"  Ground truth frame 0, joint 0: {ground_truth_final[0, 0]}")
                 
             else:
                 raise KeyError("'positions_3d' not found in raw data file")
@@ -1185,41 +1161,51 @@ if args.viz_output is not None:
             print(f"ERROR loading raw data: {e}")
             prediction_final = prediction
             ground_truth_final = ground_truth
-            
     else:
-        # No ground truth - show prediction only
         prediction_final = prediction
         ground_truth_final = None
     
-    print(f"\nFinal data for visualization:")
-    print(f"  Prediction: shape={prediction_final.shape}, range=[{np.min(prediction_final):.3f}, {np.max(prediction_final):.3f}]")
+    # Create TWO separate animations to diagnose the issue
+    # This will show ground truth and prediction side-by-side
+    anim_output = {}
+    
     if ground_truth_final is not None:
-        print(f"  Ground truth: shape={ground_truth_final.shape}, range=[{np.min(ground_truth_final):.3f}, {np.max(ground_truth_final):.3f}]")
-    
-    # Create animation output
-    anim_output = {'Reconstruction': prediction_final}
-    
-    if ground_truth_final is not None and not args.viz_no_ground_truth:
         anim_output['Ground truth'] = ground_truth_final
-        print(f"Animation will show both Reconstruction and Ground truth")
-    else:
-        print(f"Animation will show only Reconstruction (no ground truth)")
-
-    # Get camera for viewport info
+        print("\nGround truth will be rendered")
+    
+    anim_output['Reconstruction'] = prediction_final
+    print("Reconstruction will be rendered")
+    
+    # Render
     cam = dataset.cameras()[args.viz_subject][args.viz_camera]
     input_keypoints_viz = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
-
-    print(f"\n=== Starting Rendering ===")
+    
     from common.visualization import render_animation_overlap
+    
+    # ============================================
+    # KEY INSIGHT: The issue is likely in the skeleton definition
+    # or the camera azimuth angle, NOT the coordinate data
+    # ============================================
+    
+    # Try different azimuth angles to see which one aligns them
+    # Uncomment one at a time to test:
+    
+    azimuth_angle = cam['azimuth']          
+    # azimuth_angle = cam['azimuth'] + 90   
+    # azimuth_angle = cam['azimuth'] - 90   
+    # azimuth_angle = cam['azimuth'] + 180  
+    # azimuth_angle = 70                    
+    
+    print(f"\n=== Rendering with azimuth: {azimuth_angle} (original: {cam['azimuth']}) ===")
+    
     render_animation_overlap(input_keypoints_viz, keypoints_metadata, anim_output,
-                    dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
+                    dataset.skeleton(), dataset.fps(), args.viz_bitrate, azimuth_angle, args.viz_output,
                     limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
                     input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
                     input_video_skip=args.viz_skip, with_club=True if club_num != 0 else False)
     
     print(f"\n Successfully rendered {prediction_final.shape[0]} frames to {args.viz_output}")
 
-        
         
 
 else:
