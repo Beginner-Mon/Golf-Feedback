@@ -5,3 +5,5 @@
 /models
 
 *.egg-info
+
+s3_NAM_model/output/*

@@ -39,14 +39,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
 
             <div className="flex-1 flex flex-col p-3 overflow-y-auto">
-                <video
-                    src={videoUrl}
-                    controls
-                    className="w-full rounded-lg mb-2 flex-shrink-0"
-                    style={{ maxHeight: 'calc(50vh - 150px)' }}
-                >
-                    Your browser does not support the video tag.
-                </video>
+                <div className="flex-1 mb-2 overflow-hidden">
+                    <video
+                        src={videoUrl}
+                        controls
+                        className="w-full h-full rounded-lg object-contain"
+                    >
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+
 
                 <div className="text-xs text-gray-600 mb-2 flex-shrink-0">
                     <p className="font-medium truncate">{file.name}</p>
@@ -59,8 +61,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     onClick={onAnalyze}
                     disabled={loading}
                     className={`w-full px-4 py-2 rounded-lg font-semibold transition flex items-center justify-center space-x-2 flex-shrink-0 text-sm ${results
-                            ? 'bg-green-600 hover:bg-green-700 text-white'
-                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
                         } disabled:bg-gray-400 disabled:cursor-not-allowed`}
                 >
                     {loading ? (

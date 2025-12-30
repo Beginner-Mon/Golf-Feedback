@@ -70,25 +70,29 @@ export default function SwingAnalyzer() {
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-green-50 to-blue-50 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex-shrink-0 text-center py-4 px-4 border-b border-gray-200 bg-white/50 backdrop-blur">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">
-          Golf Swing Analyzer
-        </h1>
-        <p className="text-xs text-gray-600">
-          Upload your swing video for AI-powered analysis
-        </p>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {!videoUrl ? (
-          <VideoUpload onFileChange={handleFileChange} error={error} />
-        ) : (
-          <>
-            {/* Top Section - Video and Metrics */}
-            <div className="flex-1 overflow-hidden grid lg:grid-cols-2">
+      {/* ===================== */}
+      {/* SECTION 1: ANALYZER   */}
+      {/* ===================== */}
+      <div className="h-screen flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex-shrink-0 text-center py-4 px-4 border-b border-gray-200 bg-white/50 backdrop-blur">
+          <h1 className="text-2xl font-bold text-gray-800 mb-1">
+            Golf Swing Analyzer
+          </h1>
+          <p className="text-xs text-gray-600">
+            Upload your swing video for AI-powered analysis
+          </p>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 overflow-hidden">
+          {!videoUrl ? (
+            <VideoUpload onFileChange={handleFileChange} error={error} />
+          ) : (
+            <div className="h-full grid lg:grid-cols-2">
               <VideoPlayer
                 videoUrl={videoUrl}
                 file={file!}
@@ -100,21 +104,28 @@ export default function SwingAnalyzer() {
               />
               <MetricsPanel results={results} loading={loading} />
             </div>
-
-            {/* Bottom Section - Event Frames */}
-            {results?.event_frames && (
-              <EventFrames
-                results={results}
-                showJoints={showJoints}
-                selectedFrameIdx={selectedFrameIdx}
-                canvasRefs={canvasRefs}
-                onToggleJoints={() => setShowJoints(!showJoints)}
-                onSelectFrame={setSelectedFrameIdx}
-              />
-            )}
-          </>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* ===================== */}
+      {/* SECTION 2: EVENTS     */}
+      {/* ===================== */}
+
+      {results?.event_frames && (
+        <EventFrames
+          results={results}
+          showJoints={showJoints}
+          selectedFrameIdx={selectedFrameIdx}
+          canvasRefs={canvasRefs}
+          onToggleJoints={() => setShowJoints(!showJoints)}
+          onSelectFrame={setSelectedFrameIdx}
+        />
+      )}
+
+
     </div>
+
+
   );
 }

@@ -7,7 +7,7 @@ interface EventFramesProps {
     results: ApiResponse;
     showJoints: boolean;
     selectedFrameIdx: string | null;
-    canvasRefs: React.MutableRefObject<Record<string, HTMLCanvasElement | null>>;
+    canvasRefs: React.RefObject<Record<string, HTMLCanvasElement | null>>;
     onToggleJoints: () => void;
     onSelectFrame: (idx: string) => void;
 }
@@ -23,7 +23,7 @@ export const EventFrames: React.FC<EventFramesProps> = ({
     if (!results.event_frames) return null;
 
     return (
-        <div className="flex-shrink-0 bg-white border-t border-gray-200" style={{ height: '35vh' }}>
+        <div className="h-screen flex flex-col bg-white border-t border-gray-200">
             <div className="flex items-center justify-between p-3 border-b border-gray-200">
                 <h2 className="text-base font-bold text-gray-800">Swing Events</h2>
                 <button
@@ -35,27 +35,33 @@ export const EventFrames: React.FC<EventFramesProps> = ({
                 </button>
             </div>
 
-            <div className="overflow-x-auto overflow-y-hidden p-3" style={{ height: 'calc(35vh - 60px)' }}>
-                <div className="flex space-x-3">
+            {/* Frames Area */}
+            <div className="flex-1 p-10  flex items-center justify-center">
+                <div className="flex items-center overflow-x-auto gap-3">
                     {Object.entries(results.event_frames).map(([idx, frameData]) => (
                         <div
                             key={idx}
-                            className={`flex-shrink-0 cursor-pointer transition ${selectedFrameIdx === idx ? 'ring-4 ring-blue-500' : ''
-                                }`}
-                            onClick={() => onSelectFrame(idx)}
+                            className={`w-fit transition`}
                         >
-                            <canvas
-                                ref={(el) => { canvasRefs.current[idx] = el; }}
-                                className="rounded-lg shadow-md"
-                                style={{ height: 'calc(35vh - 100px)', width: 'auto' }}
-                            />
-                            <p className="text-xs text-center mt-1 font-semibold text-gray-700">
+                            {/* FRAME */}
+                            <div className="w-[24rem] h-[32rem] overflow-hidden flex items-center justify-center">
+                                <canvas
+                                    ref={(el) => {
+                                        canvasRefs.current[idx] = el;
+                                    }}
+                                    className=" object-contain shadow-lg bg-black"
+                                />
+                            </div>
+
+                            {/* LABEL */}
+                            <p className="text-sm text-center mt-3 font-semibold text-gray-700">
                                 {frameData.event}
                             </p>
                         </div>
                     ))}
                 </div>
             </div>
+
         </div>
     );
 };

@@ -12,7 +12,6 @@ from nam.config import Config, defaults
 import yaml
 from sklearn.preprocessing import MinMaxScaler
 
-
 def normalize_feature_values(raw_values: np.ndarray, all_raw_data: np.ndarray) -> np.ndarray:
     """
     Normalize feature values using MinMaxScaler(-1, 1) like in transform_data()
@@ -251,7 +250,7 @@ def load_config_from_dicts(path):
 
 
 if __name__ == "__main__":
-    config = load_config_from_dicts("output/BS/0/hparams.yaml")
+    config = load_config_from_dicts( "output/BS/0/hparams.yaml")
     dataset = NAMDataset(
             config,
             data_path=config.data_path,
@@ -278,7 +277,7 @@ if __name__ == "__main__":
             num_units=get_num_units(config, dataset.features),
         )
     litmodel = LitNAM(config, model)
-    litmodel.load_state_dict(torch.load("output/BS/0/checkpoints/epoch=09-val_loss=1270.3485.ckpt")['state_dict'])
+    litmodel.load_state_dict(torch.load("output/BS/0/checkpoints/epoch=499-val_loss=0.7530.ckpt")['state_dict'])
     
     # Plot single feature
     # print("\n=== PLOTTING ===")
