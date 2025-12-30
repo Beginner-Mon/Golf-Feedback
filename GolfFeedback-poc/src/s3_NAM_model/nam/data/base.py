@@ -80,6 +80,12 @@ class NAMDataset(CSVDataset):
             targets = np.array(np.argmax(targets, axis=-1))
         else:
             targets = self.y
+        
+        if config.regression:
+            from sklearn.preprocessing import MinMaxScaler
+            self.target_scaler = MinMaxScaler((-1, 1))
+            targets = self.target_scaler.fit_transform(targets.reshape(-1, 1)).flatten()
+
 
         self.features = torch.from_numpy(self.features).float().to(config.device)
         self.targets = torch.from_numpy(targets).view(-1, 1).float().to(config.device)

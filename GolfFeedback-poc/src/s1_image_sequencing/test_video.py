@@ -8,8 +8,8 @@ from .model import EventDetector
 import numpy as np
 import torch.nn.functional as F
 import os
-
-output_dir = "event_frames"
+from paths import DATA_DIR, MODELS_DIR
+output_dir = "s1_image_sequencing/event_frames"
 os.makedirs(output_dir, exist_ok=True)
 
 
@@ -78,7 +78,7 @@ def process_video(video_path, seq_length=64):
                           dropout=False)
 
     try:
-        save_dict = torch.load("../models/swingnet_1800.pth.tar", map_location="cpu")
+        save_dict = torch.load(MODELS_DIR / "swingnet_1800.pth.tar", map_location="cpu")
     except:
         print("Model weights not found. Download model weights and place in 'models' folder. See README for instructions")
 
@@ -115,7 +115,6 @@ def process_video(video_path, seq_length=64):
     for i, e in enumerate(events):
         confidence.append(probs[e, i])
     print('Condifence: {}'.format([np.round(c, 3) for c in confidence]))
-
     for i, e in enumerate(events):
         cap.set(cv2.CAP_PROP_POS_FRAMES, e)
         ret , img = cap.read()
@@ -129,15 +128,17 @@ def process_video(video_path, seq_length=64):
 
 
 if __name__ == '__main__':
+    # To run thí file, you need to be in src directory
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../test_video-5.mp4')
+    parser.add_argument('-p', '--path', help='Path to video that you want to test', default=DATA_DIR / "test_video-5.mp4")
     parser.add_argument('-s', '--seq-length', type=int, help='Number of frames to use per forward pass', default=64)
     args = parser.parse_args()
     seq_length = args.seq_length
 
     frame_list = process_video(args.path, seq_length=seq_length)
-    for name, img in frame_list:
-        cv2.imshow(name, img)
-        cv2.waitKey(0)     # press any key to go to next frame
-    cv2.destroyAllWindows()
+    for i, (event_name, img) in enumerate(frame_list):
+        filename = f"{i}_{event_name}.jpg"
+        save_path = os.path.join(output_dir, filename)
+        cv2.imwrite(save_path, img)
+    print(f"Saved {len(frame_list)} event frames to 's1_image_sequecing/{output_dir}/'")
 
