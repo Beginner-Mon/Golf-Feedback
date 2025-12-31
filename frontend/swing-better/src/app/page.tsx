@@ -9,6 +9,7 @@ import { VideoUpload } from '@/components/VideoUpload';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { MetricsPanel } from '@/components/MetricsPanel';
 import { EventFrames } from '@/components/EventFrames';
+import Visualisation3D from '@/components/3DVisualisation';
 
 export default function SwingAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
@@ -111,17 +112,20 @@ export default function SwingAnalyzer() {
       {/* ===================== */}
       {/* SECTION 2: EVENTS     */}
       {/* ===================== */}
+      <div className="flex h-screen">
+        {results?.event_frames && (
+          <EventFrames
+            results={results}
+            showJoints={showJoints}
+            selectedFrameIdx={selectedFrameIdx}
+            canvasRefs={canvasRefs}
+            onToggleJoints={() => setShowJoints(!showJoints)}
+            onSelectFrame={setSelectedFrameIdx}
+          />
+        )}
+        <Visualisation3D />
+      </div>
 
-      {results?.event_frames && (
-        <EventFrames
-          results={results}
-          showJoints={showJoints}
-          selectedFrameIdx={selectedFrameIdx}
-          canvasRefs={canvasRefs}
-          onToggleJoints={() => setShowJoints(!showJoints)}
-          onSelectFrame={setSelectedFrameIdx}
-        />
-      )}
 
 
     </div>

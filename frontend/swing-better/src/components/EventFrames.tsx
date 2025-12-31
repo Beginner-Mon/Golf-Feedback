@@ -23,7 +23,7 @@ export const EventFrames: React.FC<EventFramesProps> = ({
     if (!results.event_frames) return null;
 
     return (
-        <div className="h-screen flex flex-col bg-white border-t border-gray-200">
+        <div className=" flex-1 h-full overflow-hidden flex flex-col bg-white border-t border-gray-200">
             <div className="flex items-center justify-between p-3 border-b border-gray-200">
                 <h2 className="text-base font-bold text-gray-800">Swing Events</h2>
                 <button

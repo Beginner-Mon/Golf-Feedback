@@ -9,6 +9,7 @@ from nam.models import NAM, get_num_units
 from nam.trainer import LitNAM
 from nam.data import NAMDataset
 from nam.config import Config, defaults
+from nam.utils import plot_nams, plot_mean_feature_importance
 import yaml
 from sklearn.preprocessing import MinMaxScaler
 
@@ -285,6 +286,8 @@ if __name__ == "__main__":
     
     # Get all ideal values
     ideal_vals = get_ideal_values(litmodel.model, dataset, target='maximize')
+    plot_nams(litmodel.model, dataset)
+    plot_mean_feature_importance(litmodel.model, dataset)
     print("\n=== IDEAL VALUES ===")
     for feat, val in ideal_vals.items():
         print(f"{feat}: {val:.2f}")
