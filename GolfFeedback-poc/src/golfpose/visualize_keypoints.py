@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 
 # ---------------- CONFIG ----------------
-IMAGE_DIR = 'golfswing/images/S1/S1_Swing_01.2120309'
+IMAGE_DIR = 'golfswing/images/test'
 KEYPOINT_FILE = 'outputs/keypoints_2d.npy'
 OUTPUT_VIDEO = 'outputs/vis_2d_keypoints.mp4'
 
@@ -31,27 +31,37 @@ fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 video = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, FPS, (W, H))
 
 # -------- Skeleton (corrected GolfPose layout) --------
+# SKELETON = [
+#     # Right leg
+#     (0, 1), (1, 2), (2, 3),
+#     # Left leg
+#     (0, 4), (4, 5), (5, 6),
+
+#     # Spine & head
+#     (0, 7), (7, 8), (8, 9), (9, 10),
+
+#     # Left arm
+#     (8, 11), (11, 12), (12, 13),
+
+#     # Right arm
+#     (8, 14), (14, 15), (15, 16),
+
+#     # Club
+#     (13, 17), (16, 17),
+#     (17, 18),
+#     (18, 19), (18, 20), (18, 21)
+# ]
+
 SKELETON = [
-    # Right leg
-    (0, 1), (1, 2), (2, 3),
-    # Left leg
-    (0, 4), (4, 5), (5, 6),
+    (0, 1), (0, 4), (0, 7),
+    (7, 8), (8, 9), (9, 10),
 
-    # Spine & head
-    (0, 7), (7, 8), (8, 9), (9, 10),
+    (1, 2), (2, 3),
+    (4, 5), (5, 6),
 
-    # Left arm
     (8, 11), (11, 12), (12, 13),
-
-    # Right arm
     (8, 14), (14, 15), (15, 16),
-
-    # Club
-    (13, 17), (16, 17),
-    (17, 18),
-    (18, 19), (18, 20), (18, 21)
 ]
-
 # -------- Process all frames --------
 for idx, img_path in enumerate(image_files):
     img = cv2.imread(img_path)
