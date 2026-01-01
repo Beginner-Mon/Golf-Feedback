@@ -1,5 +1,5 @@
 // components/VideoPlayer.tsx
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Video, X, Activity, AlertCircle } from 'lucide-react';
 import { ApiResponse } from '@/types';
 
@@ -13,6 +13,9 @@ interface VideoPlayerProps {
     onReset: () => void;
 }
 
+const MAX_SIZE_MB = 15;
+const MAX_DURATION_SEC = 60;
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     videoUrl,
     file,
@@ -22,6 +25,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onAnalyze,
     onReset,
 }) => {
+    const [videoError, setVideoError] = useState<string | null>(null);
+    const [duration, setDuration] = useState<number | null>(null);
+
+    /** Check file size */
+    useEffect(() => {
+        if (!file) return;
+
+        const sizeMB = file.size / (1024 * 1024);
+        if (sizeMB > MAX_SIZE_MB) {
+            setVideoError(`Video size must be ≤ ${MAX_SIZE_MB}MB`);
+        } else {
+            setVideoError(null);
+        }
+    }, [file]);
+
+    /** Check video duration */
+    const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        const video = e.currentTarget;
+        setDuration(video.duration);
+
+        if (video.duration > MAX_DURATION_SEC) {
+            setVideoError(`Video duration must be ≤ ${MAX_DURATION_SEC} seconds`);
+        }
+    };
+
+    const isDisabled =
+        loading ||
+        !!videoError ||
+        (duration !== null && duration > MAX_DURATION_SEC);
+
     return (
         <div className="bg-white border-r border-gray-200 flex flex-col overflow-hidden">
             <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-gray-200">
@@ -43,27 +76,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <video
                         src={videoUrl}
                         controls
+                        onLoadedMetadata={handleLoadedMetadata}
                         className="w-full h-full rounded-lg object-contain"
                     >
                         Your browser does not support the video tag.
                     </video>
                 </div>
 
-
                 <div className="text-xs text-gray-600 mb-2 flex-shrink-0">
                     <p className="font-medium truncate">{file.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-gray-500">
                         {(file.size / (1024 * 1024)).toFixed(2)} MB
+                        {duration !== null && ` • ${duration.toFixed(1)}s`}
                     </p>
                 </div>
 
                 <button
                     onClick={onAnalyze}
-                    disabled={loading}
+                    disabled={isDisabled}
                     className={`w-full px-4 py-2 rounded-lg font-semibold transition flex items-center justify-center space-x-2 flex-shrink-0 text-sm ${results
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                        } disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                            ? 'bg-green-600 hover:bg-green-700'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        } text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
                 >
                     {loading ? (
                         <>
@@ -78,10 +112,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     )}
                 </button>
 
-                {error && (
+                {(videoError || error) && (
                     <div className="flex items-center space-x-2 text-red-600 bg-red-50 px-3 py-2 rounded mt-2 flex-shrink-0">
                         <AlertCircle className="w-4 h-4" />
-                        <span className="text-xs">{error}</span>
+                        <span className="text-xs">{videoError || error}</span>
                     </div>
                 )}
             </div>
