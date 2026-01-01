@@ -74,13 +74,40 @@ def main():
             print(f" Processed {idx + 1}/{len(img_files)} frames")
 
     # 6. Save output
-    keypoints_2d = np.stack(all_keypoints, axis=0)
-    out_path = os.path.join(args.out_dir, "keypoints_2d.npy")
-    np.save(out_path, keypoints_2d)
+
+    keypoints_2d = np.stack(all_keypoints, axis=0)  # (T, J, 3)
+
+    # Split xy and confidence
+    keypoints_xy = keypoints_2d[:, :, :2]      # (T, J, 2)
+    keypoints_score = keypoints_2d[:, :, 2]    # (T, J)
+
+    # Wrap into PoseFormer-compatible structure
+    positions_2d = {
+        "custom": {
+            "sequence": [keypoints_xy]  # list = cameras
+        }
+    }
+
+    metadata = {
+        "layout_name": "custom_mmpose",
+        "num_joints": keypoints_xy.shape[1],
+        "keypoints_symmetry": [
+            list(range(0, keypoints_xy.shape[1] // 2)),
+            list(range(keypoints_xy.shape[1] // 2, keypoints_xy.shape[1]))
+        ]
+    }
+
+    out_path = os.path.join(args.out_dir, "keypoints_2d.npz")
+
+    np.savez_compressed(
+        out_path,
+        positions_2d=positions_2d,
+        metadata=metadata,
+        keypoint_scores=keypoints_score  # optional but useful
+    )
 
     print(f"[INFO] Saved keypoints to {out_path}")
-    print(f"[INFO] Output shape: {keypoints_2d.shape}")
-    print("[INFO] Step 2 completed successfully")
+    print(f"[INFO] positions_2d shape: {keypoints_xy.shape}")
 
 
 if __name__ == "__main__":

@@ -100,6 +100,13 @@ elif args.dataset == 'golf':
     from common.golf_dataset import GolfDataset
     # Use 'gt' for 3D data structure, but camera setup depends on keypoints type
     dataset = GolfDataset(dataset_path_3d, args.keypoints)
+    # If args.keypoints is actually a path, force a safe type for GolfDataset
+    kp_for_dataset = args.keypoints
+    if isinstance(kp_for_dataset, str) and (kp_for_dataset.endswith(".npz") or kp_for_dataset.endswith(".npy")):
+        kp_for_dataset = "gt"  # or whatever your dataset expects
+
+    dataset = GolfDataset(dataset_path_3d, kp_for_dataset)
+
 elif args.dataset.startswith('humaneva'):
     from common.humaneva_dataset import HumanEvaDataset
     dataset = HumanEvaDataset(dataset_path_3d)
@@ -134,7 +141,13 @@ for subject in sorted(dataset.subjects()):
                 pos_3d_mm = anim['positions'].copy()
                 
                 # Convert mm to meters
-                pos_3d_meters = pos_3d_mm / 1000.0
+                pos_3d = anim['positions'].copy()
+
+                if np.max(np.abs(pos_3d)) > 10:
+                    pos_3d = pos_3d / 1000.0
+
+                pos_3d_meters = pos_3d
+
                 
                 print(f"  Camera {cam_idx} after meter conversion: {np.min(pos_3d_meters):.4f} to {np.max(pos_3d_meters):.4f} m")
 
@@ -153,7 +166,54 @@ for subject in sorted(dataset.subjects()):
             print(f"  Stored positions_3d with {len(positions_3d)} camera(s)")
 
 print('Loading 2D detections...')
-keypoints_file = np.load('golfswing/data_2d_' + args.dataset + '_' + args.keypoints + '.npz', allow_pickle=True)
+
+# Decide the keypoints path:
+# 1) If args.keypoints is a direct path to an existing .npy/.npz, use it.
+# 2) Otherwise, fall back to the original convention: golfswing/data_2d_{dataset}_{keypoints}.npz
+if (
+    isinstance(args.keypoints, str)
+    and (args.keypoints.endswith(".npz") or args.keypoints.endswith(".npy"))
+    and os.path.exists(args.keypoints)
+):
+    keypoints_path = args.keypoints
+else:
+    keypoints_path = f'golfswing/data_2d_{args.dataset}_{args.keypoints}.npz'
+
+print(f"Loading 2D detections from: {keypoints_path}")
+
+# Load depending on extension
+keypoints_file = None
+keypoints_array = None
+keypoints_path = os.path.expanduser(str(keypoints_path)).strip().strip('"').strip("'")
+
+ext = os.path.splitext(keypoints_path)[1].lower()
+
+if keypoints_path.endswith(".npz"):
+    keypoints_file = np.load(keypoints_path, allow_pickle=True)
+
+elif keypoints_path.endswith(".npy"):
+    keypoints_array = np.load(keypoints_path, allow_pickle=True)  # (T, J, 2) or (T, J, 3)
+
+    # Ensure (T, J, 2)
+    if keypoints_array.ndim == 4:
+        keypoints_array = keypoints_array[0]
+    if keypoints_array.shape[-1] == 3:
+        keypoints_array = keypoints_array[..., :2]
+
+    # Wrap into the same dict format as NPZ
+    keypoints = {"custom": {"sequence": [keypoints_array]}}
+    keypoints_metadata = {
+        "layout_name": "custom_npy",
+        "num_joints": keypoints_array.shape[1],
+        "keypoints_symmetry": [
+            list(range(0, keypoints_array.shape[1] // 2)),
+            list(range(keypoints_array.shape[1] // 2, keypoints_array.shape[1]))
+        ]
+    }
+
+else:
+    raise ValueError(f"Unsupported keypoints file type: {keypoints_path}")
+    
 
 # Check what keys are available
 available_keys = list(keypoints_file.keys())
@@ -207,7 +267,58 @@ elif 'positions' in keypoints_file:
 else:
     raise KeyError(f"Could not find 2D positions in keypoints file. Available keys: {available_keys}")
 
+# Remap Step2 single-sequence NPZ -> viz subject/action (render mode only)
+if args.render and isinstance(keypoints, dict) and "custom" in keypoints and "sequence" in keypoints["custom"]:
+    seq = keypoints["custom"]["sequence"]
+
+    # seq might be [array] or array
+    arr = seq[0] if isinstance(seq, list) else seq  # (T, J, 2)
+
+    # If accidentally saved (T, J, 3), drop confidence
+    if arr.shape[-1] == 3:
+        arr = arr[..., :2]
+    
+    
+    if arr.shape[1] == 17:
+        T = arr.shape[0]
+        pad = np.zeros((T, 5, 2), dtype=arr.dtype)
+        arr = np.concatenate([arr, pad], axis=1)   # (T, 22, 2)
+        print("[INFO] Padded 2D keypoints 17 -> 22 (added 5 club joints as zeros)")
+
+    import numpy as np
+
+    print("\n[DEBUG] Joint y-values at frame 0 (sorted top->bottom):")
+    ys = arr[0, :, 1]
+    order = np.argsort(ys)  # small y = higher on image
+    for rank, j in enumerate(order):
+        x, y = arr[0, j]
+        print(f"  rank {rank:02d}: j{j:02d}  x={x:7.2f}  y={y:7.2f}")
+
+    # Print a quick guess: bottom-most joints (likely ankles/feet)
+    bottom = order[-6:]
+    print("\n[DEBUG] Bottom 6 joints (likely legs/feet):", bottom.tolist())
+    for j in bottom:
+        x, y = arr[0, j]
+        print(f"  j{j:02d}: x={x:.2f}, y={y:.2f}")
+
+    # Optional: labeled plot (frame 0)
+    try:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.scatter(arr[0, :, 0], arr[0, :, 1])
+        for j in range(arr.shape[1]):
+            plt.text(arr[0, j, 0], arr[0, j, 1], str(j), fontsize=8)
+        plt.gca().invert_yaxis()  # image coordinates
+        plt.title("Frame 0 joint indices")
+        plt.show()
+    except Exception as e:
+        print("[DEBUG] matplotlib plot skipped:", e)
+
+    keypoints = {args.viz_subject: {args.viz_action: [arr]}}
+    print(f"[INFO] Remapped keypoints custom/sequence -> {args.viz_subject}/{args.viz_action}")
+
 print(f"Loaded 2D keypoints for subjects: {list(keypoints.keys())}")
+
 
 # Check the structure and convert if needed
 for subject in keypoints.keys():
@@ -241,58 +352,77 @@ keypoints_metadata['num_joints'] = total_num
 print(f"Using {total_num} joints ({human_num} human + {club_num} club)")
 # end
 
-###################
-for subject in sorted(dataset.subjects()):
-    assert subject in keypoints, f'Subject {subject} is missing from the 2D detections dataset'
-
-    for action in sorted(dataset[subject].keys()):
-        assert action in keypoints[subject], f'Action {action} of subject {subject} is missing from the 2D detections dataset'
-
-        if 'positions_3d' not in dataset[subject][action]:
-            continue
-
-        # ---------- FORCE SINGLE CAMERA ----------
-        if isinstance(keypoints[subject][action], np.ndarray):
-            keypoints[subject][action] = [keypoints[subject][action]]
-
-        if isinstance(dataset[subject][action]['positions_3d'], np.ndarray):
-            dataset[subject][action]['positions_3d'] = [dataset[subject][action]['positions_3d']]
-        # -----------------------------------------
-
-        num_cams = min(
-            len(keypoints[subject][action]),
-            len(dataset[subject][action]['positions_3d'])
-        )
-
-        for cam_idx in range(num_cams):
-            kp = keypoints[subject][action][cam_idx]
-            pos3d = dataset[subject][action]['positions_3d'][cam_idx]
-
-            # Clamp to shortest sequence
-            T = min(kp.shape[0], pos3d.shape[0])
-            keypoints[subject][action][cam_idx] = kp[:T]
-            dataset[subject][action]['positions_3d'][cam_idx] = pos3d[:T]
-
-        # Inference mode: enforce single-camera consistency
-keypoints[subject][action] = keypoints[subject][action][:1]
-dataset[subject][action]['positions_3d'] = dataset[subject][action]['positions_3d'][:1]
 
 
-for subject in sorted(keypoints.keys()):
-    for action in sorted(keypoints[subject]):
-        for cam_idx, kps in enumerate(keypoints[subject][action]):
-            # Normalize camera frame
-            cam = dataset.cameras()[subject][cam_idx]
-            kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
-            keypoints[subject][action][cam_idx] = kps
+
+
 
 subjects_train = args.subjects_train.split(',')
+subjects_test = args.subjects_test.split(',') if not args.render else [args.viz_subject]
 subjects_semi = [] if not args.subjects_unlabeled else args.subjects_unlabeled.split(',')
-if not args.render:
-    subjects_test = args.subjects_test.split(',')
-else:
-    subjects_test = [args.viz_subject]
 
+subjects_to_check = sorted(set(subjects_train + subjects_test + subjects_semi))
+
+if not args.render:
+    for subject in subjects_to_check:
+        assert subject in keypoints, f'Subject {subject} is missing from the 2D detections dataset'
+        for action in sorted(dataset[subject].keys()):
+            assert action in keypoints[subject], f'Action {action} of subject {subject} is missing from the 2D detections dataset'
+
+            if 'positions_3d' not in dataset[subject][action]:
+                continue
+
+            # ---------- FORCE SINGLE CAMERA ----------
+            if isinstance(keypoints[subject][action], np.ndarray):
+                keypoints[subject][action] = [keypoints[subject][action]]
+
+            if isinstance(dataset[subject][action]['positions_3d'], np.ndarray):
+                dataset[subject][action]['positions_3d'] = [dataset[subject][action]['positions_3d']]
+            # -----------------------------------------
+
+            num_cams = min(
+                len(keypoints[subject][action]),
+                len(dataset[subject][action]['positions_3d'])
+            )
+
+            for cam_idx in range(num_cams):
+                kp = keypoints[subject][action][cam_idx]
+                pos3d = dataset[subject][action]['positions_3d'][cam_idx]
+
+                T = min(kp.shape[0], pos3d.shape[0])
+                keypoints[subject][action][cam_idx] = kp[:T]
+                dataset[subject][action]['positions_3d'][cam_idx] = pos3d[:T]
+                print(
+                f"[DEBUG] 2D range before model ({subject}/{action}/cam{cam_idx}): "
+                f"{kp.min():.4f} → {kp.max():.4f}"
+)
+else:
+    # Render mode: validate only the requested sequence exists
+    s = args.viz_subject
+    a = args.viz_action
+    assert s in keypoints, f'Render mode: Subject {s} missing from 2D keypoints'
+    assert a in keypoints[s], f'Render mode: Action {a} missing for subject {s}'
+
+    if isinstance(keypoints[s][a], np.ndarray):
+        keypoints[s][a] = [keypoints[s][a]]
+
+    keypoints[s][a] = keypoints[s][a][:1]
+
+    if 'positions_3d' in dataset[s][a]:
+        if isinstance(dataset[s][a]['positions_3d'], np.ndarray):
+            dataset[s][a]['positions_3d'] = [dataset[s][a]['positions_3d']]
+        dataset[s][a]['positions_3d'] = dataset[s][a]['positions_3d'][:1]
+
+        # Clamp lengths
+        kp = keypoints[s][a][0]
+        pos3d = dataset[s][a]['positions_3d'][0]
+        T = min(kp.shape[0], pos3d.shape[0])
+        keypoints[s][a][0] = kp[:T]
+        dataset[s][a]['positions_3d'][0] = pos3d[:T]
+
+
+
+from common.camera import normalize_screen_coordinates
 
 def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
     """
@@ -321,12 +451,24 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
             # -----------------------------
             # 2D poses (ONE camera only)
             # -----------------------------
-            poses_2d = np.asarray(keypoints[subject][action][0])
+            poses_2d = np.asarray(keypoints[subject][action][0]).astype(np.float32)  # (T, J, 2)
 
-            # poses_2d is (T, J, 2)
+            # If your input file has only 17 joints but model expects 22, pad here
+            if poses_2d.shape[1] == 17 and args.club_num == 5:
+                T = poses_2d.shape[0]
+                pad = np.zeros((T, 5, 2), dtype=poses_2d.dtype)
+                poses_2d = np.concatenate([poses_2d, pad], axis=1)  # (T, 22, 2)
+
+            # Normalize to model expected coordinates (usually [-1, 1])
+            # Only do this if it looks like pixel coordinates.
+            cam0 = dataset.cameras()[subject][0]  # single cam
+            # heuristic: pixels typically > 2; normalized usually within [-2, 2]
+            if np.nanmax(np.abs(poses_2d)) > 2.5:
+                poses_2d = normalize_screen_coordinates(
+                    poses_2d, w=cam0['res_w'], h=cam0['res_h']
+                )
+
             out_poses_2d.append(poses_2d)
-
-            # Camera params not required for inference
             out_camera_params.append(None)
 
             # -----------------------------
@@ -334,11 +476,8 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
             # -----------------------------
             if parse_3d_poses and 'positions_3d' in dataset[subject][action]:
                 poses_3d = dataset[subject][action]['positions_3d']
-
-                # positions_3d may be wrapped in a list → unwrap
                 if isinstance(poses_3d, list):
                     poses_3d = poses_3d[0]
-
                 out_poses_3d.append(poses_3d)
 
     if len(out_camera_params) == 0:
@@ -349,20 +488,20 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
     stride = args.downsample
     if subset < 1:
         for i in range(len(out_poses_2d)):
-            n_frames = int(round(len(out_poses_2d[i])//stride * subset)*stride)
+            n_frames = int(round(len(out_poses_2d[i]) // stride * subset) * stride)
             start = deterministic_random(0, len(out_poses_2d[i]) - n_frames + 1, str(len(out_poses_2d[i])))
-            out_poses_2d[i] = out_poses_2d[i][start:start+n_frames:stride]
+            out_poses_2d[i] = out_poses_2d[i][start:start + n_frames:stride]
             if out_poses_3d is not None:
-                out_poses_3d[i] = out_poses_3d[i][start:start+n_frames:stride]
+                out_poses_3d[i] = out_poses_3d[i][start:start + n_frames:stride]
     elif stride > 1:
-        # Downsample as requested
         for i in range(len(out_poses_2d)):
             out_poses_2d[i] = out_poses_2d[i][::stride]
             if out_poses_3d is not None:
                 out_poses_3d[i] = out_poses_3d[i][::stride]
-
+                
 
     return out_camera_params, out_poses_3d, out_poses_2d
+
 
 action_filter = None if args.actions == '*' else args.actions.split(',')
 if action_filter is not None:
@@ -1020,32 +1159,32 @@ print("\n=== Fixing Coordinate System ===")
 def transform_coordinates(data):
     """Transform coordinates: swap Y/Z and flip Z"""
     transformed = data.copy()
-    transformed[:, :, 0] = -data[:, :, 0]  # FIX: flip X
-    transformed[:, :, 1] = data[:, :, 2]   # Y = old Z
-    transformed[:, :, 2] = -data[:, :, 1]   # New Z = -old Y
+    # transformed[:, :, 0] = -data[:, :, 0]  # FIX: flip X
+    # transformed[:, :, 1] = data[:, :, 2]   # Y = old Z
+    # transformed[:, :, 2] = -data[:, :, 1]   # New Z = -old Y
     return transformed
 
-# Step 1: Flatten if batched
-if prediction.ndim == 4:
-    print(f"Flattening batched predictions from {prediction.shape}")
-    prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
-print(f"Flattened to: {prediction.shape}")
+# # Step 1: Flatten if batched
+# if prediction.ndim == 4:
+#     print(f"Flattening batched predictions from {prediction.shape}")
+#     prediction = prediction.reshape(-1, prediction.shape[-2], prediction.shape[-1])
+# print(f"Flattened to: {prediction.shape}")
 
-# Step 2: Transform prediction (root-relative)
-print("Transforming prediction coordinates...")
-prediction = transform_coordinates(prediction)
+# # Step 2: Transform prediction (root-relative)
+# print("Transforming prediction coordinates...")
+# prediction = transform_coordinates(prediction)
 
-# Step 3: Trim to match ground truth
-if ground_truth is not None:
-    target_len = ground_truth.shape[0]
-    print(f"\n=== Matching Lengths ===")
-    print(f"Prediction: {prediction.shape[0]} frames")
-    print(f"Ground truth: {target_len} frames")
+# # Step 3: Trim to match ground truth
+# if ground_truth is not None:
+#     target_len = ground_truth.shape[0]
+#     print(f"\n=== Matching Lengths ===")
+#     print(f"Prediction: {prediction.shape[0]} frames")
+#     print(f"Ground truth: {target_len} frames")
     
-    if prediction.shape[0] > target_len:
-        prediction = prediction[:target_len]
-    elif prediction.shape[0] < target_len:
-        ground_truth = ground_truth[:prediction.shape[0]]
+#     if prediction.shape[0] > target_len:
+#         prediction = prediction[:target_len]
+#     elif prediction.shape[0] < target_len:
+#         ground_truth = ground_truth[:prediction.shape[0]]
 
 # Step 4: Load absolute ground truth and reconstruct absolute prediction
 if args.viz_output is not None and ground_truth is not None:
@@ -1169,9 +1308,9 @@ if args.viz_output is not None:
     # This will show ground truth and prediction side-by-side
     anim_output = {}
     
-    if ground_truth_final is not None:
-        anim_output['Ground truth'] = ground_truth_final
-        print("\nGround truth will be rendered")
+    # if ground_truth_final is not None:
+    #     anim_output['Ground truth'] = ground_truth_final
+    #     print("\nGround truth will be rendered")
     
     anim_output['Reconstruction'] = prediction_final
     print("Reconstruction will be rendered")
@@ -1180,7 +1319,7 @@ if args.viz_output is not None:
     cam = dataset.cameras()[args.viz_subject][args.viz_camera]
     input_keypoints_viz = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
     
-    from common.visualization import render_animation_overlap
+    from common.visualization import render_animation
     
     # ============================================
     # KEY INSIGHT: The issue is likely in the skeleton definition
@@ -1198,11 +1337,12 @@ if args.viz_output is not None:
     
     print(f"\n=== Rendering with azimuth: {azimuth_angle} (original: {cam['azimuth']}) ===")
     
-    render_animation_overlap(input_keypoints_viz, keypoints_metadata, anim_output,
-                    dataset.skeleton(), dataset.fps(), args.viz_bitrate, azimuth_angle, args.viz_output,
-                    limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
-                    input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
-                    input_video_skip=args.viz_skip, with_club=True if club_num != 0 else False)
+    
+    render_animation(input_keypoints_viz, keypoints_metadata, anim_output,
+    dataset.skeleton(), dataset.fps(), args.viz_bitrate, azimuth_angle, args.viz_output,
+    limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
+    input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
+    input_video_skip=args.viz_skip)
     
     print(f"\n Successfully rendered {prediction_final.shape[0]} frames to {args.viz_output}")
 
