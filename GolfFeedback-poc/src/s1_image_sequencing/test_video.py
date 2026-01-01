@@ -8,8 +8,8 @@ from .model import EventDetector
 import numpy as np
 import torch.nn.functional as F
 import os
-
-output_dir = "event_frames"
+from paths import DATA_DIR, MODELS_DIR
+output_dir = "s1_image_sequencing/event_frames"
 os.makedirs(output_dir, exist_ok=True)
 
 
@@ -78,7 +78,7 @@ def process_video(video_path, seq_length=64):
                           dropout=False)
 
     try:
-        save_dict = torch.load("../models/swingnet_1800.pth.tar", map_location="cpu")
+        save_dict = torch.load(MODELS_DIR / "swingnet_1800.pth.tar", map_location="cpu")
     except:
         print("Model weights not found. Download model weights and place in 'models' folder. See README for instructions")
 
@@ -128,8 +128,9 @@ def process_video(video_path, seq_length=64):
 
 
 if __name__ == '__main__':
+    # To run thí file, you need to be in src directory
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', help='Path to video that you want to test', default='../du.mp4')
+    parser.add_argument('-p', '--path', help='Path to video that you want to test', default=DATA_DIR / "test_video-5.mp4")
     parser.add_argument('-s', '--seq-length', type=int, help='Number of frames to use per forward pass', default=64)
     args = parser.parse_args()
     seq_length = args.seq_length
@@ -139,5 +140,5 @@ if __name__ == '__main__':
         filename = f"{i}_{event_name}.jpg"
         save_path = os.path.join(output_dir, filename)
         cv2.imwrite(save_path, img)
-    print(f"Saved {len(frame_list)} event frames to '{output_dir}/'")
+    print(f"Saved {len(frame_list)} event frames to 's1_image_sequecing/{output_dir}/'")
 
