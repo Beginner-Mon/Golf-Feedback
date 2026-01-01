@@ -112,8 +112,9 @@ export default function SwingAnalyzer() {
       {/* ===================== */}
       {/* SECTION 2: EVENTS     */}
       {/* ===================== */}
-      <div className="flex h-screen">
-        {results?.event_frames && (
+
+      {results?.event_frames && (
+        <div className="flex h-screen">
           <EventFrames
             results={results}
             showJoints={showJoints}
@@ -122,9 +123,13 @@ export default function SwingAnalyzer() {
             onToggleJoints={() => setShowJoints(!showJoints)}
             onSelectFrame={setSelectedFrameIdx}
           />
-        )}
-        <Visualisation3D />
-      </div>
+          <Visualisation3D />
+        </div>
+
+
+      )}
+
+
 
 
 
