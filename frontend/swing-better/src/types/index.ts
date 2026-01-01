@@ -27,3 +27,20 @@ export interface ApiResponse {
     joints?: Record<string, EventJoints>;
     metrics?: Record<string, EventMetrics>;
 }
+
+
+export type Pose3DFrame = {
+    frame: number;
+    joints_3d: number[][];
+};
+
+type Pose3DResponse = {
+    status: string;
+    pagination: {
+        page: number;
+        page_size: number;
+        total_frames: number;
+        total_pages: number;
+    };
+    data: Pose3DFrame[];
+};

@@ -1,39 +1,108 @@
 "use client";
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
-// Common human skeleton parent array (COCO-style 17 joints, root at pelvis=0)
-const parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 13, 14];
-
-// Colors: left (blue), right (red), center (gray)
-const jointColors = [
-    0x888888, // 0 pelvis
-    0x888888, // 1 thorax
-    0x888888, // 2 neck
-    0x888888, // 3 head
-    0x0000ff, // 4 left_shoulder
-    0x0000ff, // 5 left_elbow
-    0x0000ff, // 6 left_wrist
-    0xff0000, // 7 right_shoulder
-    0xff0000, // 8 right_elbow
-    0xff0000, // 9 right_wrist
-    0x0000ff, // 10 left_hip
-    0x0000ff, // 11 left_knee
-    0x0000ff, // 12 left_ankle
-    0xff0000, // 13 right_hip
-    0xff0000, // 14 right_knee
-    0xff0000, // 15 right_ankle
+// Updated skeleton connections based on the provided image connections:
+// Looking at the "Person" column connections:
+const parents = [
+    -1,  // 0: p1 hip (root)
+    0,   // 1: p2 r_hip -> connected to p1 hip
+    1,   // 2: p3 r_knee -> connected to p2 r_hip
+    2,   // 3: p4 r_ankle -> connected to p3 r_knee
+    0,   // 4: p5 l_hip -> connected to p1 hip
+    4,   // 5: p6 l_knee -> connected to p5 l_hip
+    5,   // 6: p7 l_ankle -> connected to p6 l_knee
+    0,   // 7: p8 spine -> connected to p1 hip
+    7,   // 8: p9 neck -> connected to p8 spine
+    8,   // 9: p10 neck_base -> connected to p9 neck
+    9,   // 10: p11 head -> connected to p10 neck_base
+    8,   // 11: p12 l_shoulder -> connected to p9 neck (via neck_base connection)
+    11,  // 12: p13 l_elbow -> connected to p12 l_shoulder
+    12,  // 13: p14 l_wrist -> connected to p13 l_elbow
+    8,   // 14: p15 r_shoulder -> connected to p9 neck (via neck_base connection)
+    14,  // 15: p16 r_elbow -> connected to p15 r_shoulder
+    15   // 16: p17 r_wrist -> connected to p16 r_elbow
 ];
 
-// Props for the component
+// Bone connections array - each entry is [parentIndex, childIndex]
+const boneConnections = [
+    // Legs
+    [0, 1],   // hip -> r_hip
+    [1, 2],   // r_hip -> r_knee
+    [2, 3],   // r_knee -> r_ankle
+    [0, 4],   // hip -> l_hip
+    [4, 5],   // l_hip -> l_knee
+    [5, 6],   // l_knee -> l_ankle
+
+    // Spine
+    [0, 7],   // hip -> spine
+    [7, 8],   // spine -> neck
+    [8, 9],   // neck -> neck_base
+    [9, 10],  // neck_base -> head
+
+    // Left arm
+    [8, 11],  // neck -> l_shoulder
+    [11, 12], // l_shoulder -> l_elbow
+    [12, 13], // l_elbow -> l_wrist
+
+    // Right arm
+    [8, 14],  // neck -> r_shoulder
+    [14, 15], // r_shoulder -> r_elbow
+    [15, 16], // r_elbow -> r_wrist
+];
+
+// Colors: right side (red), left side (blue), center (gray)
+const jointColors = [
+    0x888888, // 0: hip (center)
+    0xff0000, // 1: r_hip (right)
+    0xff0000, // 2: r_knee (right)
+    0xff0000, // 3: r_ankle (right)
+    0x0000ff, // 4: l_hip (left)
+    0x0000ff, // 5: l_knee (left)
+    0x0000ff, // 6: l_ankle (left)
+    0x888888, // 7: spine (center)
+    0x888888, // 8: neck (center)
+    0x888888, // 9: neck_base (center)
+    0x888888, // 10: head (center)
+    0x0000ff, // 11: l_shoulder (left)
+    0x0000ff, // 12: l_elbow (left)
+    0x0000ff, // 13: l_wrist (left)
+    0xff0000, // 14: r_shoulder (right)
+    0xff0000, // 15: r_elbow (right)
+    0xff0000  // 16: r_wrist (right)
+];
+
+// Joint labels based on your image table
+const jointLabels = [
+    "hip",          // 0: p1
+    "r_hip",        // 1: p2
+    "r_knee",       // 2: p3
+    "r_ankle",      // 3: p4
+    "l_hip",        // 4: p5
+    "l_knee",       // 5: p6
+    "l_ankle",      // 6: p7
+    "spine",        // 7: p8
+    "neck",         // 8: p9
+    "neck_base",    // 9: p10
+    "head",         // 10: p11
+    "l_shoulder",   // 11: p12
+    "l_elbow",      // 12: p13
+    "l_wrist",      // 13: p14
+    "r_shoulder",   // 14: p15
+    "r_elbow",      // 15: p16
+    "r_wrist"       // 16: p17
+];
+
 interface Pose3DProps {
-    poses: Float32Array[]; // Array of frames: each frame is Float32Array(num_joints * 3)
-    fps?: number;          // Playback FPS (default 30)
-    autoPlay?: boolean;    // Auto play animation
+    poses: Float32Array[];
+    fps?: number;
+    autoPlay?: boolean;
     showTrajectory?: boolean;
-    scale?: number;        // Scale factor for the pose
+    scale?: number;
+    currentFrame: number;
+    numJoints: number;
 }
 
 const Pose3DSkeleton: React.FC<Pose3DProps> = ({
@@ -42,28 +111,22 @@ const Pose3DSkeleton: React.FC<Pose3DProps> = ({
     autoPlay = true,
     showTrajectory = true,
     scale = 1,
+    currentFrame,
+    numJoints
 }) => {
     const groupRef = useRef<THREE.Group>(null);
-    const [frame, setFrame] = useState(0);
-
-    // Precompute geometry for lines and points
-    const lineGeometry = useMemo(() => {
-        const geom = new THREE.BufferGeometry();
-        const positions = new Float32Array(parents.length * 2 * 3);
-        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        return geom;
-    }, []);
+    const [jointPositions, setJointPositions] = useState<number[][]>([]);
+    const [boneLines, setBoneLines] = useState<JSX.Element[]>([]);
 
     const pointGeometry = useMemo(() => {
         const geom = new THREE.BufferGeometry();
-        const positions = new Float32Array(parents.length * 3);
+        const positions = new Float32Array(numJoints * 3);
         geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const colors = new Float32Array(parents.length * 3);
+        const colors = new Float32Array(numJoints * 3);
         geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         return geom;
-    }, []);
+    }, [numJoints]);
 
-    // Trajectory geometry
     const trajectoryGeometry = useMemo(() => {
         const geom = new THREE.BufferGeometry();
         const positions = new Float32Array(poses.length * 3);
@@ -71,161 +134,308 @@ const Pose3DSkeleton: React.FC<Pose3DProps> = ({
         return geom;
     }, [poses.length]);
 
-    // Update skeleton for current frame
+    // Update joint positions and bones when currentFrame changes
     useEffect(() => {
-        if (!poses.length) return;
+        if (!poses.length || currentFrame >= poses.length) return;
 
-        const currentPose = poses[frame];
-        const scaledPose = currentPose.map(v => v * scale);
+        const currentPose = poses[currentFrame];
+        const scaledPose = new Float32Array(numJoints * 3);
+        const newJointPositions: number[][] = [];
 
-        // Update points
+        for (let i = 0; i < numJoints; i++) {
+            const x = currentPose[i * 3];
+            const y = currentPose[i * 3 + 1];
+            const z = currentPose[i * 3 + 2];
+
+            // (x, y, -z)
+            scaledPose[i * 3] = x * scale;
+            scaledPose[i * 3 + 1] = -y * scale;     // giữ Y là height
+            scaledPose[i * 3 + 2] = -z * scale;    // lật Z
+
+            newJointPositions[i] = [x * scale, -y * scale, -z * scale];
+        }
+
+        setJointPositions(newJointPositions);
+
         pointGeometry.attributes.position.array.set(scaledPose);
         pointGeometry.attributes.position.needsUpdate = true;
 
-        // Update colors (vertex colors)
-        for (let i = 0; i < parents.length; i++) {
+        for (let i = 0; i < numJoints; i++) {
             const color = new THREE.Color(jointColors[i] || 0x888888);
             pointGeometry.attributes.color.setXYZ(i, color.r, color.g, color.b);
         }
         pointGeometry.attributes.color.needsUpdate = true;
 
-        // Update lines
-        const linePos = lineGeometry.attributes.position.array as Float32Array;
-        let idx = 0;
-        for (let j = 0; j < parents.length; j++) {
-            const p = parents[j];
-            if (p === -1) continue;
-            // parent joint
-            linePos[idx++] = scaledPose[p * 3];
-            linePos[idx++] = scaledPose[p * 3 + 1];
-            linePos[idx++] = scaledPose[p * 3 + 2];
-            // child joint
-            linePos[idx++] = scaledPose[j * 3];
-            linePos[idx++] = scaledPose[j * 3 + 1];
-            linePos[idx++] = scaledPose[j * 3 + 2];
-        }
-        lineGeometry.attributes.position.needsUpdate = true;
-
-        // Trajectory (pelvis/hip movement)
         if (showTrajectory) {
             const trajPositions = new Float32Array(poses.length * 3);
             for (let f = 0; f < poses.length; f++) {
                 const p = poses[f];
-                trajPositions[f * 3] = p[0] * scale;     // assuming pelvis is joint 0: x
-                trajPositions[f * 3 + 1] = p[1] * scale; // y
-                trajPositions[f * 3 + 2] = p[2] * scale; // z
+                trajPositions[f * 3] = p[0] * scale;
+                trajPositions[f * 3 + 1] = p[1] * scale;
+                trajPositions[f * 3 + 2] = p[2] * scale;
             }
             const posAttr = trajectoryGeometry.attributes.position as THREE.BufferAttribute;
             posAttr.array.set(trajPositions);
             posAttr.needsUpdate = true;
         }
-    }, [frame, poses, scale, showTrajectory, lineGeometry, pointGeometry, trajectoryGeometry]);
 
-    // Animation loop
-    useFrame((state, delta) => {
-        if (autoPlay && poses.length > 1) {
-            setFrame(prev => (prev + 1) % poses.length);
-        }
-    });
+        // Create bone lines
+        const newBoneLines = boneConnections.map(([parentIdx, childIdx], index) => {
+            if (parentIdx >= newJointPositions.length || childIdx >= newJointPositions.length) {
+                return null;
+            }
 
-    // Camera auto-focus on the pose
+            const parentPos = newJointPositions[parentIdx];
+            const childPos = newJointPositions[childIdx];
+
+            if (!parentPos || !childPos) {
+                return null;
+            }
+
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(parentPos[0], parentPos[1], parentPos[2]),
+                new THREE.Vector3(childPos[0], childPos[1], childPos[2])
+            ]);
+
+            // Determine bone color based on which side it's on
+            let boneColor = 0x888888; // Default gray for center
+            if (parentIdx <= 3 || (parentIdx >= 14 && parentIdx <= 16)) {
+                boneColor = 0xff0000; // Right side - red
+            } else if ((parentIdx >= 4 && parentIdx <= 6) || (parentIdx >= 11 && parentIdx <= 13)) {
+                boneColor = 0x0000ff; // Left side - blue
+            }
+
+            return (
+                <line key={`bone-${index}`} geometry={lineGeometry}>
+                    <lineBasicMaterial color={boneColor} linewidth={2} />
+                </line>
+            );
+        }).filter(Boolean) as JSX.Element[];
+
+        setBoneLines(newBoneLines);
+
+    }, [currentFrame, poses, scale, showTrajectory, pointGeometry, trajectoryGeometry, numJoints]);
+
     const { camera } = useThree();
     useEffect(() => {
-        camera.position.set(0, 1, 3);
+        camera.position.set(2, 1, 3);
         camera.lookAt(0, 1, 0);
     }, [camera]);
 
     return (
         <group ref={groupRef}>
-            {/* Skeleton lines */}
-            <lineSegments geometry={lineGeometry}>
-                <lineBasicMaterial color={0xffffff} linewidth={5} />
-            </lineSegments>
+            {/* Render bones as lines */}
+            {boneLines}
 
-            {/* Joint points */}
+            {/* Render joints as points */}
             <points geometry={pointGeometry}>
-                <pointsMaterial size={0.05} vertexColors sizeAttenuation />
+                <pointsMaterial size={0.15} vertexColors sizeAttenuation />
             </points>
 
-            {/* Optional trajectory */}
+            {/* Render trajectory if enabled */}
             {showTrajectory && (
                 <primitive object={new THREE.Line(trajectoryGeometry, new THREE.LineBasicMaterial({ color: 0x00ff00, opacity: 0.5, transparent: true }))} />
             )}
+
+            {/* Joint labels with names */}
+            {jointPositions.length > 0 && jointPositions.map((pos, i) => (
+                <Text
+                    key={`label-${i}`}
+                    position={[pos[0], pos[1] + 0.08, pos[2]]}
+                    fontSize={0.05}
+                    color="white"
+                    anchorX="center"
+                    anchorY="middle"
+                    outlineWidth={0.01}
+                    outlineColor="black"
+                >
+                    {i}: {jointLabels[i]}
+                </Text>
+            ))}
         </group>
     );
 };
 
 const Visualisation3D: React.FC = () => {
-    // Example dummy data - replace with your actual 3D poses
-    // poses: array of frames, each frame Float32Array(17 joints * 3 coords)
-    const examplePoses: Float32Array[] = useMemo(() => {
-        const numFrames = 100;
-        const numJoints = 17;
-        const poses: Float32Array[] = [];
-        for (let f = 0; f < numFrames; f++) {
-            const pose = new Float32Array(numJoints * 3);
-            const t = f / numFrames * Math.PI * 2;
-            // Simple walking-like animation (arms/legs swing)
-            pose[0 * 3] = 0; // pelvis x
-            pose[0 * 3 + 1] = 1; // pelvis y
-            pose[0 * 3 + 2] = 0; // pelvis z
+    const [poses, setPoses] = useState<Float32Array[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [currentFrame, setCurrentFrame] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(true);
+    const [totalFrames, setTotalFrames] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [numJoints, setNumJoints] = useState(17);
+    const [metadata, setMetadata] = useState<any>(null);
+    const animationRef = useRef<number | null>(null);
 
-            // Add some basic joint positions for visibility
-            pose[1 * 3 + 1] = 1.2; // thorax
-            pose[2 * 3 + 1] = 1.4; // neck
-            pose[3 * 3 + 1] = 1.6; // head
+    const fetchPoseData = async (page: number = 1) => {
+        try {
+            setLoading(true);
+            setError(null);
 
-            // Arms swing
-            pose[4 * 3] = -0.3; // left shoulder x
-            pose[4 * 3 + 1] = 1.2 + Math.sin(t) * 0.1; // left shoulder y
-            pose[5 * 3] = -0.4; // left elbow x
-            pose[5 * 3 + 1] = 1.0 + Math.sin(t) * 0.2; // left elbow y
+            const response = await fetch(`http://127.0.0.1:8000/analyze/3d?page=${page}&page_size=30`);
 
-            pose[7 * 3] = 0.3; // right shoulder x
-            pose[7 * 3 + 1] = 1.2 + Math.sin(t + Math.PI) * 0.1; // right shoulder y
-            pose[8 * 3] = 0.4; // right elbow x
-            pose[8 * 3 + 1] = 1.0 + Math.sin(t + Math.PI) * 0.2; // right elbow y
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
 
-            // Legs
-            pose[10 * 3] = -0.15; // left hip x
-            pose[10 * 3 + 1] = 1.0; // left hip y
-            pose[11 * 3] = -0.15; // left knee x
-            pose[11 * 3 + 1] = 0.5; // left knee y
-            pose[12 * 3] = -0.15; // left ankle x
-            pose[12 * 3 + 1] = 0.0; // left ankle y
+            const result = await response.json();
 
-            pose[13 * 3] = 0.15; // right hip x
-            pose[13 * 3 + 1] = 1.0; // right hip y
-            pose[14 * 3] = 0.15; // right knee x
-            pose[14 * 3 + 1] = 0.5; // right knee y
-            pose[15 * 3] = 0.15; // right ankle x
-            pose[15 * 3 + 1] = 0.0; // right ankle y
+            if (result.status === 'success' && result.data) {
+                if (result.meta) {
+                    setMetadata(result.meta);
+                    setNumJoints(result.meta.joints);
+                }
 
-            poses.push(pose);
+                const newPoses: Float32Array[] = result.data.map((frameData: any) => {
+                    const joints = frameData.joints_3d;
+                    const flatArray = new Float32Array(joints.length * 3);
+                    joints.forEach((joint: number[], idx: number) => {
+                        flatArray[idx * 3] = joint[0];
+                        flatArray[idx * 3 + 1] = joint[1];
+                        flatArray[idx * 3 + 2] = joint[2];
+                    });
+                    return flatArray;
+                });
+
+                setPoses(prev => page === 1 ? newPoses : [...prev, ...newPoses]);
+                setTotalFrames(result.pagination.total_frames);
+                setTotalPages(result.pagination.total_pages);
+                setCurrentPage(result.pagination.page);
+            } else {
+                throw new Error('Invalid response format');
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to fetch pose data');
+            console.error('Error fetching pose data:', err);
+        } finally {
+            setLoading(false);
         }
-        return poses;
+    };
+
+    useEffect(() => {
+        fetchPoseData(1);
     }, []);
+
+    useEffect(() => {
+        if (isPlaying && poses.length > 0) {
+            const fps = 30;
+            const interval = 1000 / fps;
+
+            animationRef.current = window.setInterval(() => {
+                setCurrentFrame(prev => {
+                    const nextFrame = (prev + 1) % poses.length;
+
+                    if (nextFrame === 0 && currentPage < totalPages) {
+                        fetchPoseData(currentPage + 1);
+                    }
+
+                    return nextFrame;
+                });
+            }, interval);
+
+            return () => {
+                if (animationRef.current) clearInterval(animationRef.current);
+            };
+        }
+    }, [isPlaying, poses.length, currentPage, totalPages]);
+
+    const togglePlayPause = () => setIsPlaying(!isPlaying);
+
+    const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const frame = parseInt(e.target.value);
+        setCurrentFrame(frame);
+    };
+
+    if (loading && poses.length === 0) {
+        return (
+            <div className="w-full h-screen flex items-center justify-center bg-black text-white">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-white mx-auto mb-4"></div>
+                    <p className="text-xl">Loading pose data...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="w-full h-screen flex items-center justify-center bg-black text-white">
+                <div className="text-center max-w-md">
+                    <h2 className="text-2xl font-bold mb-4 text-red-500">Error</h2>
+                    <p className="mb-4">{error}</p>
+                    <button
+                        onClick={() => fetchPoseData(1)}
+                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+                    >
+                        Retry
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex-1 overflow-hidden w-full h-screen flex flex-col bg-black">
             <Canvas>
-                <PerspectiveCamera makeDefault position={[0, 1, 4]} />
+                <PerspectiveCamera makeDefault position={[2, 1, 4]} />
                 <ambientLight intensity={0.8} />
                 <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
                 <OrbitControls enablePan enableZoom enableRotate />
+                <primitive object={new THREE.AxesHelper(1.5)} />
 
-                <Pose3DSkeleton poses={examplePoses} fps={30} autoPlay scale={1} />
+                <Pose3DSkeleton
+                    poses={poses}
+                    fps={30}
+                    autoPlay={false}
+                    scale={1}
+                    currentFrame={currentFrame}
+                    numJoints={numJoints}
+                />
 
-                {/* Ground plane for reference */}
-                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
+                <mesh rotation={[-Math.PI / 2, 0, Math.PI / 2]} position={[0, 3, 0]} receiveShadow>
                     <planeGeometry args={[10, 10]} />
                     <meshStandardMaterial color="#444444" />
                 </mesh>
             </Canvas>
 
-            <div className="p-4 text-white text-center bg-gray-900">
-                <h2 className="text-xl font-bold">3D Pose Visualisation</h2>
-                <p className="text-sm opacity-70">Drag to rotate • Scroll to zoom</p>
+            <div className="p-4 text-white bg-gray-900">
+                <h2 className="text-xl font-bold text-center mb-1">3D Pose Visualization</h2>
+                {metadata && (
+                    <p className="text-sm opacity-70 text-center mb-2">
+                        Custom Skeleton Format • {metadata.total_frames} frames • {metadata.joints} joints
+                    </p>
+                )}
+                <p className="text-xs opacity-60 text-center mb-4">Drag to rotate • Scroll to zoom</p>
+
+                <div className="flex items-center gap-4 mb-2">
+                    <button
+                        onClick={togglePlayPause}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium"
+                    >
+                        {isPlaying ? 'Pause' : 'Play'}
+                    </button>
+
+                    <div className="flex-1">
+                        <input
+                            type="range"
+                            min="0"
+                            max={Math.max(0, poses.length - 1)}
+                            value={currentFrame}
+                            onChange={handleSliderChange}
+                            className="w-full"
+                        />
+                    </div>
+
+                    <span className="text-sm whitespace-nowrap">
+                        {currentFrame + 1} / {totalFrames}
+                    </span>
+                </div>
+
+                {loading && currentPage > 1 && (
+                    <p className="text-xs text-center opacity-70">Loading more frames...</p>
+                )}
             </div>
         </div>
     );
