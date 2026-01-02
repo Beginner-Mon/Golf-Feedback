@@ -68,18 +68,16 @@ Before running the application, you need to download the required model files:
 **Installation Instructions:**
 
 1. Download the `models` folder from the Google Drive link
-2. Place the downloaded `models` folder in the `src/` directory
-   - Final path should be: `src/models/`
-
+2. Place the downloaded `models` folder in the root directory
 3. Download the `golfpose-checkpoints` folder from the Google Drive link
 4. Place the downloaded `golfpose-checkpoints` folder in the `src/golfpose/` directory
    - Final path should be: `src/golfpose/golfpose-checkpoints/`
 
 Your directory structure should look like this after downloading:
 ```
+models/   # Downloaded model files
 src/
 ├── app/
-├── models/              # Downloaded model files
 ├── golfpose/
 │   └── golfpose-checkpoints/  # Downloaded checkpoint files
 └── ...
