@@ -9,7 +9,7 @@ import { VideoUpload } from '@/components/VideoUpload';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { MetricsPanel } from '@/components/MetricsPanel';
 import { EventFrames } from '@/components/EventFrames';
-import Visualisation3D from '@/components/3DVisualisation';
+import Visualization3D from '@/components/Visualization3D';
 
 export default function SwingAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
@@ -123,7 +123,7 @@ export default function SwingAnalyzer() {
             onToggleJoints={() => setShowJoints(!showJoints)}
             onSelectFrame={setSelectedFrameIdx}
           />
-          <Visualisation3D />
+          <Visualization3D />
         </div>
 
 

@@ -29,18 +29,24 @@ export interface ApiResponse {
 }
 
 
-export type Pose3DFrame = {
-    frame: number;
+export interface PoseFrameData {
     joints_3d: number[][];
-};
+}
 
-type Pose3DResponse = {
-    status: string;
-    pagination: {
-        page: number;
-        page_size: number;
-        total_frames: number;
-        total_pages: number;
-    };
-    data: Pose3DFrame[];
-};
+export interface PaginationData {
+    page: number;
+    page_size: number;
+    total_frames: number;
+    total_pages: number;
+}
+
+export interface MetaData {
+    joints: number;
+    total_frames: number;
+}
+export interface PoseApiResponse {
+    status: 'success' | 'error';
+    data: PoseFrameData[];
+    meta: MetaData;
+    pagination: PaginationData;
+}
