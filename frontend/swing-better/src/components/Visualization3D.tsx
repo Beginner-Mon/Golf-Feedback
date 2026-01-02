@@ -71,7 +71,7 @@ const Visualisation3D: React.FC = () => {
                 <ambientLight intensity={0.8} />
                 <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
                 <OrbitControls enablePan enableZoom enableRotate />
-                <primitive object={new THREE.AxesHelper(1.5)} />
+                {/* <primitive object={new THREE.AxesHelper(1.5)} /> */}
 
                 <Pose3DSkeleton
                     poses={poses}
