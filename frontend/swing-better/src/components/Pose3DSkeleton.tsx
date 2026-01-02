@@ -9,6 +9,7 @@ interface Pose3DProps {
     fps?: number;
     autoPlay?: boolean;
     showTrajectory?: boolean;
+    showJointLabels?: boolean;  // New prop
     scale?: number;
     currentFrame: number;
     numJoints: number;
@@ -22,13 +23,14 @@ interface BoneLineData {
 export const Pose3DSkeleton: React.FC<Pose3DProps> = ({
     poses,
     showTrajectory = true,
+    showJointLabels = true,  // Default to true
     scale = 1,
     currentFrame,
     numJoints
 }) => {
     const groupRef = useRef<THREE.Group>(null);
     const [jointPositions, setJointPositions] = useState<number[][]>([]);
-    const [boneLines, setBoneLines] = useState<BoneLineData[]>([]);
+    const [boneLines, setBoneLines] = useState<JSX.Element[]>([]);
 
     const pointGeometry = useMemo(() => {
         const geometry = new THREE.BufferGeometry();
@@ -69,9 +71,9 @@ export const Pose3DSkeleton: React.FC<Pose3DProps> = ({
     };
 
     const updateBoneLines = (positions: number[][]) => {
-        const newBoneLines: BoneLineData[] = [];
+        const newBoneLines: JSX.Element[] = [];
 
-        SKELETON_CONFIG.BONE_CONNECTIONS.forEach(([parentIdx, childIdx]) => {
+        SKELETON_CONFIG.BONE_CONNECTIONS.forEach(([parentIdx, childIdx], index) => {
             if (parentIdx >= positions.length || childIdx >= positions.length) {
                 return;
             }
@@ -98,7 +100,11 @@ export const Pose3DSkeleton: React.FC<Pose3DProps> = ({
                 linewidth: 2
             });
 
-            newBoneLines.push({ geometry: lineGeometry, material });
+            // Create line as a primitive object
+            const lineObject = new THREE.Line(lineGeometry, material);
+            newBoneLines.push(
+                <primitive key={`bone-${index}`} object={lineObject} />
+            );
         });
 
         setBoneLines(newBoneLines);
@@ -119,12 +125,7 @@ export const Pose3DSkeleton: React.FC<Pose3DProps> = ({
     return (
         <group ref={groupRef}>
             {/* Render bones as lines */}
-            {boneLines.map((bone, index) => (
-                <primitive
-                    key={`bone-${index}`}
-                    object={new THREE.Line(bone.geometry, bone.material)}
-                />
-            ))}
+            {boneLines}
 
             {/* Render joints as points */}
             <points geometry={pointGeometry}>
@@ -136,8 +137,8 @@ export const Pose3DSkeleton: React.FC<Pose3DProps> = ({
                 <primitive object={trajectoryLine} />
             )}
 
-            {/* Joint labels with names */}
-            {jointPositions.length > 0 && jointPositions.map((pos, i) => (
+            {/* Joint labels with names - conditionally rendered */}
+            {showJointLabels && jointPositions.length > 0 && jointPositions.map((pos, i) => (
                 <Text
                     key={`label-${i}`}
                     position={[pos[0], pos[1] + 0.08, pos[2]]}
