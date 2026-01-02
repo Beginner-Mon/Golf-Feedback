@@ -317,15 +317,30 @@ vue_cameras_extrinsic_params = {
     ],
 }
 
+
+
 class GolfDataset(MocapDataset):
     def __init__(self, path, keypoints, remove_static_joints=False):
         super().__init__(fps=50, skeleton=golf_skeleton)
         
-        ## self._cameras 表：每個subject要到每台相機的外參內參
-        if keypoints == 'gt': # ground truth keypoints
+        ## self._cameras 表：每個subject要到每台相機的外像內像
+        # The keypoints parameter determines which camera configuration to use
+        if keypoints == 'gt': # ground truth keypoints - use all cameras
             self._cameras = copy.deepcopy(all_cameras_extrinsic_params)
-        elif keypoints == 'hrnet': # hrnet keypoints
+        elif keypoints == 'hrnet': # hrnet keypoints - use vue cameras only
             self._cameras = copy.deepcopy(vue_cameras_extrinsic_params)
+        elif keypoints == 'detected': # detected keypoints - use vue cameras
+            print(f"INFO: Using vue_cameras_extrinsic_params for '{keypoints}' keypoints")
+            self._cameras = copy.deepcopy(vue_cameras_extrinsic_params)
+        else:
+            # Default to vue_cameras_extrinsic_params for unknown keypoint types
+            print(f"WARNING: Unknown keypoints type '{keypoints}', defaulting to vue_cameras_extrinsic_params")
+            self._cameras = copy.deepcopy(vue_cameras_extrinsic_params)
+        
+        # Validate that cameras were initialized
+        if self._cameras is None:
+            raise ValueError(f"Failed to initialize cameras for keypoints type: {keypoints}")
+        
         for sub, cameras in self._cameras.items(): # for each subject's camera
             for i, cam in enumerate(cameras):
                 cam.update(cameras_intrinsic_params[i])
@@ -360,27 +375,45 @@ class GolfDataset(MocapDataset):
                 cam['world_to_vicon_basis_dots'] = np.array(world_to_vicon_basis_dots[sub][i], dtype='float32')
                 cam['square_size'] = square_size
 
-        # Load serialized dataset
-        data = np.load(path, allow_pickle=True)['positions_3d'].item()
+        # Load serialized dataset (3D ground truth data)
+        loaded_data = np.load(path, allow_pickle=True)
+        
+        # Check what keys are available
+        available_keys = list(loaded_data.keys())
+        print(f"Loading 3D data from {path}")
+        print(f"Available keys: {available_keys}")
+        
+        # Load the positions_3d data
+        if 'positions_3d' in loaded_data:
+            data = loaded_data['positions_3d'].item()
+        elif 'positions' in loaded_data:
+            data = loaded_data['positions'].item()
+        else:
+            raise KeyError(f"Could not find 3D position data in {path}. Available keys: {available_keys}")
+        
+        # Verify data structure
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected 3D data to be a dict, got {type(data)}")
+        
+        print(f"Loaded 3D data for subjects: {list(data.keys())}")
         
         self._data = {}
         for subject, actions in data.items():
             self._data[subject] = {}
+            
+            # Ensure subject exists in cameras
+            if subject not in self._cameras:
+                print(f"WARNING: Subject '{subject}' not found in camera config, using first available")
+                first_subject = list(self._cameras.keys())[0]
+                self._cameras[subject] = self._cameras[first_subject]
+            
             for action_name, positions in actions.items():
-                
                 self._data[subject][action_name] = {
                     'positions': positions,
                     'cameras': self._cameras[subject],
                 }
+        
+        print(f"Dataset initialized with {len(self._data)} subjects")
                 
-        # if remove_static_joints:
-        #     # Bring the skeleton to 17 joints instead of the original 32
-        #     self.remove_joints([4, 5, 9, 10, 11, 16, 20, 21, 22, 23, 24, 28, 29, 30, 31])
-            
-        #     # Rewire shoulders to the correct parents
-        #     self._skeleton._parents[11] = 8
-        #     self._skeleton._parents[14] = 8
-            
     def supports_semi_supervised(self):
         return True
-   
