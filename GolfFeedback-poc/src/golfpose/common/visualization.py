@@ -92,7 +92,7 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
     radius = 1.7
     if newpose is not None:
         axnew = fig.add_subplot(1, 1 + len(poses) + len(newpose), 2, projection='3d')
-        axnew.view_init(elev=15., azim=azim)
+        axnew.view_init(elev=15, azim=azim)
         axnew.set_xlim3d([-radius / 2, radius / 2])
         axnew.set_zlim3d([0, radius])
         axnew.set_ylim3d([-radius / 2, radius / 2])

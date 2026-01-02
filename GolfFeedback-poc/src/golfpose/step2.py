@@ -1,111 +1,114 @@
-"""
-GolfPose Step 2 – Temporal 2D Keypoint Extraction
-
-Input:
-- Folder of RGB frames for ONE golf swing
-
-Output:
-- outputs/keypoints_2d.npy      -> (T, 22, 3)
-- outputs/vis_2d/*.jpg          -> 2D pose visualizations
-"""
-
+import argparse
 import os
 import numpy as np
-from mmdet.apis import init_detector, inference_detector
-from mmpose.apis import Pose2DInferencer
+import torch
+import mmcv
+from mmengine.config import Config
+from mmpose.apis import init_model, inference_topdown
+from mmpose.utils import register_all_modules
 
-# ============================
-# CONFIG
-# ============================
-IMAGE_DIR = 'golfswing/images/S1/S1_Swing_01.2120309'
+def parse_args():
+    parser = argparse.ArgumentParser(description="Step2: 2D Pose Estimation (MMPose 1.x)")
+    parser.add_argument("--seq-dir", type=str, required=True, help="Directory containing image sequence")
+    parser.add_argument("--bbox", type=str, default="bbox.npy", help="Path to bbox.npy from Step1")
+    parser.add_argument("--pose-config", type=str, required=True, help="Pose config file")
+    parser.add_argument("--pose-checkpoint", type=str, required=True, help="Pose checkpoint file")
+    parser.add_argument("--out-dir", type=str, default="outputs_step2", help="Output directory")
+    parser.add_argument("--device", type=str, default="cuda:0")
+    return parser.parse_args()
 
-DET_CONFIG = 'configs/mmdet/golfpose_detector_2cls_yolox_s.py'
-DET_CHECKPOINT = 'golfpose_checkpoints/golfpose_detector_2cls_yolox_s.pth'
+def main():
+    args = parse_args()
+    os.makedirs(args.out_dir, exist_ok=True)
 
-POSE_CONFIG = 'configs/mmpose/golfpose_golfer_hrnetw48.py'
-POSE_CHECKPOINT = 'golfpose_checkpoints/golfpose_golfer_hrnetw48.pth'
+    # 1. Register modules (required for legacy MMPose)
+    register_all_modules()
 
-DEVICE = 'cuda'  # or 'cpu'
-OUTPUT_DIR = 'outputs'
-VIS_DIR = os.path.join(OUTPUT_DIR, 'vis_2d')
+    # 2. Load bbox
+    raw_bbox = np.load(args.bbox, allow_pickle=True)
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(VIS_DIR, exist_ok=True)
+    # Normalize to numpy array (1, 4)
+    if isinstance(raw_bbox, np.ndarray) and raw_bbox.shape == (4,):
+        base_bbox = raw_bbox.astype(float)[None, :]  # (1, 4)
+    elif isinstance(raw_bbox, (list, np.ndarray)):
+        b = raw_bbox[0]
+        base_bbox = np.array(b, dtype=float)[None, :]
+    else:
+        raise RuntimeError("Unsupported bbox.npy format")
 
-# ============================
-# LOAD MODELS
-# ============================
-print('[INFO] Loading golfer detector...')
-det_model = init_detector(DET_CONFIG, DET_CHECKPOINT, device=DEVICE)
-
-print('[INFO] Loading 2D pose model...')
-pose_inferencer = Pose2DInferencer(
-    model=POSE_CONFIG,
-    weights=POSE_CHECKPOINT,
-    device=DEVICE
-)
-
-# ============================
-# LOAD FRAMES
-# ============================
-image_files = sorted([
-    os.path.join(IMAGE_DIR, f)
-    for f in os.listdir(IMAGE_DIR)
-    if f.lower().endswith(('.jpg', '.png'))
-])
-
-assert len(image_files) > 0, 'No images found in IMAGE_DIR'
-print(f'[INFO] Found {len(image_files)} frames')
-
-# ============================
-# PROCESS FRAMES
-# ============================
-all_keypoints = []
-
-for idx, img_path in enumerate(image_files):
-    print(f'[INFO] Processing frame {idx+1}/{len(image_files)}')
-
-    # -------- Step 1: Detect golfer --------
-    det_result = inference_detector(det_model, img_path)
-    instances = det_result.pred_instances
-
-    if len(instances) == 0:
-        raise RuntimeError(f'No golfer detected in {img_path}')
-
-    bboxes = instances.bboxes.cpu().numpy()
-    scores = instances.scores.cpu().numpy()
-    best_bbox = bboxes[scores.argmax()]
-
-    # -------- Step 2: 2D pose estimation --------
-    result = next(
-        pose_inferencer(
-            img_path,
-            bboxes=[best_bbox.tolist()],
-            return_datasamples=True
-        )
+    # 3. Load model
+    print(f"[INFO] Loading model from {args.pose_config}")
+    model = init_model(
+        args.pose_config,
+        args.pose_checkpoint,
+        device=args.device
     )
 
-    pred = result['predictions'][0]
-    inst = pred.pred_instances
+    # 4. Load image sequence
+    img_files = sorted([
+        os.path.join(args.seq_dir, f)
+        for f in os.listdir(args.seq_dir)
+        if f.lower().endswith((".jpg", ".png", ".jpeg"))
+    ])
 
-    keypoints = inst.keypoints[0]           # (22, 2)
-    keypoint_scores = inst.keypoint_scores[0]  # (22,)
+    if len(img_files) == 0:
+        raise RuntimeError("No images found")
 
-    keypoints_2d = np.concatenate(
-        [keypoints, keypoint_scores[:, None]],
-        axis=1
+    print(f"[INFO] Running inference on {len(img_files)} frames...")
+
+    all_keypoints = []
+
+    # 5. Inference loop
+    for idx, img_path in enumerate(img_files):
+        # ALWAYS pass bbox as (1, 4)
+        results = inference_topdown(model, img_path, base_bbox)
+
+        pred = results[0].pred_instances
+        xy = pred.keypoints[0]          # (J, 2)
+        score = pred.keypoint_scores[0] # (J,)
+
+        keypoints = np.concatenate([xy, score[:, None]], axis=1)
+        all_keypoints.append(keypoints)
+
+        if (idx + 1) % 10 == 0:
+            print(f" Processed {idx + 1}/{len(img_files)} frames")
+
+    # 6. Save output
+
+    keypoints_2d = np.stack(all_keypoints, axis=0)  # (T, J, 3)
+
+    # Split xy and confidence
+    keypoints_xy = keypoints_2d[:, :, :2]      # (T, J, 2)
+    keypoints_score = keypoints_2d[:, :, 2]    # (T, J)
+
+    # Wrap into PoseFormer-compatible structure
+    positions_2d = {
+        "custom": {
+            "sequence": [keypoints_xy]  # list = cameras
+        }
+    }
+
+    metadata = {
+        "layout_name": "custom_mmpose",
+        "num_joints": keypoints_xy.shape[1],
+        "keypoints_symmetry": [
+            list(range(0, keypoints_xy.shape[1] // 2)),
+            list(range(keypoints_xy.shape[1] // 2, keypoints_xy.shape[1]))
+        ]
+    }
+
+    out_path = os.path.join(args.out_dir, "keypoints_2d.npz")
+
+    np.savez_compressed(
+        out_path,
+        positions_2d=positions_2d,
+        metadata=metadata,
+        keypoint_scores=keypoints_score  # optional but useful
     )
 
-    all_keypoints.append(keypoints_2d)
+    print(f"[INFO] Saved keypoints to {out_path}")
+    print(f"[INFO] positions_2d shape: {keypoints_xy.shape}")
 
-# ============================
-# SAVE OUTPUT
-# ============================
-all_keypoints = np.stack(all_keypoints, axis=0).astype(np.float32)
 
-out_path = os.path.join(OUTPUT_DIR, 'keypoints_2d.npy')
-np.save(out_path, all_keypoints)
-
-print('\n[SUCCESS]')
-print('Saved 2D keypoints to:', out_path)
-print('Shape:', all_keypoints.shape)
+if __name__ == "__main__":
+    main()
