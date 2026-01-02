@@ -1,10 +1,29 @@
-# Golf Feedback system
+# Golf Feedback System
 
-## Setup Instructions
+A comprehensive golf swing analysis application with real-time feedback, featuring a React frontend and FastAPI backend powered by computer vision and pose estimation.
+
+## Project Structure
+
+```
+golf-feedback-system/
+├── frontend/
+│   └── swing-better/     # React application
+├── src/                  # Backend FastAPI application
+├── requirements.txt      # Python dependencies
+└── README.md
+```
+
+## Prerequisites
+
+- Python 3.8 or higher
+- Node.js 16.x or higher
+- npm or yarn package manager
+
+## Backend Setup
 
 ### 1. Create Virtual Environment
 
-First, navigate to your project directory and create a virtual environment:
+Navigate to your project root directory and create a virtual environment:
 
 ```bash
 python -m venv venv
@@ -32,7 +51,7 @@ source venv/bin/activate
 
 You should see `(venv)` appear at the beginning of your command line prompt, indicating the virtual environment is active.
 
-### 3. Install Requirements
+### 3. Install Python Dependencies
 
 With the virtual environment activated, install the required packages:
 
@@ -40,24 +59,95 @@ With the virtual environment activated, install the required packages:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Application
+### 4. Run the Backend
 
-Once all dependencies are installed, run the main script:
+**Development Mode (with auto-reload):**
+```bash
+uvicorn src.app.main:app --reload
+```
+
+**Production Mode:**
+```bash
+uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+```
+
+The backend API will be available at `http://localhost:8000`
+
+
+## Frontend Setup
+
+### 1. Navigate to Frontend Directory
 
 ```bash
-python main.py
+cd frontend/swing-better
+```
+
+### 2. Install Node Dependencies
+
+```bash
+npm install
+```
+
+Or if you're using yarn:
+
+```bash
+yarn install
+```
+
+### 3. Run the Frontend
+
+**Development Mode:**
+```bash
+npm run dev
+```
+
+Or with yarn:
+```bash
+yarn dev
+```
+
+**Production Build:**
+```bash
+npm run build
+```
+
+Or with yarn:
+```bash
+yarn build
 ```
 
 
 
-## References
+The frontend application will typically be available at `http://localhost:3000` (or the port specified in your configuration).
 
-This project references the following research papers:
+## Running the Complete Application
+
+To run both frontend and backend simultaneously:
+
+1. **Terminal 1 - Backend:**
+   ```bash
+   # From /src root
+   source venv/bin/activate  # or venv\Scripts\activate on Windows
+   uvicorn app.main:app --reload
+   ```
+
+2. **Terminal 2 - Frontend:**
+   ```bash
+   # From project root
+   cd frontend/swing-better
+   npm run dev
+   ```
+
+
+## Research References
+
+This project is based on the following research papers:
 
 1. [ArXiv Paper 2508.20491v1](https://arxiv.org/pdf/2508.20491v1)
 2. [ICPR 2024 GolfPose Paper](https://minghanlee.github.io/papers/ICPR_2024_GolfPose.pdf)
 3. [ArXiv Paper 1903.06528](https://arxiv.org/pdf/1903.06528)
 
----
 
-For additional help or questions, please refer to the project documentation or open an issue.
+
+
+
