@@ -59,7 +59,33 @@ With the virtual environment activated, install the required packages:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Backend
+### 4. Download Required Models
+
+Before running the application, you need to download the required model files:
+
+**Download Link:** [Model Files on Google Drive](https://drive.google.com/drive/folders/1BKUNltJUyj6fsY3t4qcpK0GeR5Ke8EFV?usp=sharing)
+
+**Installation Instructions:**
+
+1. Download the `models` folder from the Google Drive link
+2. Place the downloaded `models` folder in the `src/` directory
+   - Final path should be: `src/models/`
+
+3. Download the `golfpose-checkpoints` folder from the Google Drive link
+4. Place the downloaded `golfpose-checkpoints` folder in the `src/golfpose/` directory
+   - Final path should be: `src/golfpose/golfpose-checkpoints/`
+
+Your directory structure should look like this after downloading:
+```
+src/
+├── app/
+├── models/              # Downloaded model files
+├── golfpose/
+│   └── golfpose-checkpoints/  # Downloaded checkpoint files
+└── ...
+```
+
+### 5. Run the Backend
 
 **Development Mode (with auto-reload):**
 ```bash
@@ -139,6 +165,7 @@ To run both frontend and backend simultaneously:
    ```
 
 
+
 ## Research References
 
 This project is based on the following research papers:
@@ -146,8 +173,4 @@ This project is based on the following research papers:
 1. [ArXiv Paper 2508.20491v1](https://arxiv.org/pdf/2508.20491v1)
 2. [ICPR 2024 GolfPose Paper](https://minghanlee.github.io/papers/ICPR_2024_GolfPose.pdf)
 3. [ArXiv Paper 1903.06528](https://arxiv.org/pdf/1903.06528)
-
-
-
-
 
