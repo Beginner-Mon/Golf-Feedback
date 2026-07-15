@@ -1,0 +1,7 @@
+python step1.py --image golfswing/images/test/frame_000001.jpg
+
+python step2.py   --seq-dir golfswing/images/test   --bbox bbox.npy   --pose-config configs/mmpose/golfpose_person_hrnetw48.py   --pose-checkpoint golfpose_checkpoints/golfpose_person_hrnetw48.pth   --out-dir outputs
+
+python golfpose_3d.py   --dataset golf   --keypoints outputs/keypoints_2d.npz --club 0 --checkpoint golfpose_checkpoints   --evaluate golfpose_17+0_35.6.bin   --render   --viz-subject G5   --viz-action Swing01   --viz-camera 0   --viz-output output.mp4
+
+

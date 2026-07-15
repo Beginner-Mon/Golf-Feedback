@@ -17,9 +17,9 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="End-to-end pipeline: Video -> 3D Pose"
     )
-    parser.add_argument("--video", type=str, required=True, help="Input video path")
-    parser.add_argument("--pose-config", type=str, required=True, help="MMPose config")
-    parser.add_argument("--pose-checkpoint", type=str, required=True, help="MMPose checkpoint")
+    parser.add_argument("--video", type=str, default="test_video-5.mp4", help="Input video path")
+    parser.add_argument("--pose-config", type=str, default="configs/mmpose/golfpose_person_hrnetw48.py", help="MMPose config")
+    parser.add_argument("--pose-checkpoint", type=str, default="golfpose_checkpoints/golfpose_person_hrnetw48.pth", help="MMPose checkpoint")
     parser.add_argument("--golfpose-checkpoint", type=str, 
                         default="golfpose_checkpoints/golfpose_17+0_35.6.bin",
                         help="GolfPose 3D model checkpoint")
